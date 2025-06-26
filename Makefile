@@ -1,4 +1,4 @@
-CFLAGS = -std=gnu89 -Wall -pedantic
+CFLAGS += -std=gnu89 -Wall -pedantic
 OBJS = decode
 all: $(OBJS)
 clean:

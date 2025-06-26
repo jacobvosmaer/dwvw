@@ -1,0 +1,5 @@
+#!/bin/sh
+in=$1
+shift
+lldb --one-line "settings set target.input-path $in" --one-line 'process launch' decode -- "$@"
+
