@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define assert(x)                                                              \
+  if (!(x))                                                                    \
+  __builtin_trap()
+
 void fail(char *fmt, ...) {
   va_list ap;
   fputs("error: ", stderr);
@@ -57,27 +61,39 @@ int main(int argc, char **argv) {
   nsamples = atoi(argv[4]);
   if (nsamples < 1)
     fail("invalid number of samples: %d", nsamples);
-br.f=stdin;
+  br.f = stdin;
   while (nchannels--) {
     int64_t deltawidth = 0, sample = 0;
     while (nsamples--) {
-      int64_t i, b, dwm = 0, delta = 0, outsample;
-      while (b = Nextbit(&br), !b && dwm < inwordsize / 2)
+      int64_t i, dwm = 0, outsample;
+      while (dwm < inwordsize / 2 && !Nextbit(&br))
         dwm++;
       if (dwm) {
         dwm *= Nextbit(&br) ? -1 : 1;
         deltawidth += dwm;
-        delta = 1;
-        for (i = 0; i < deltawidth; i++)
+        if (deltawidth < 0)
+          deltawidth += inwordsize;
+        else if (deltawidth >= inwordsize)
+          deltawidth -= inwordsize;
+        assert(deltawidth >= 0 && deltawidth <= inwordsize);
+      }
+      if (deltawidth) {
+        int64_t delta = 1;
+        for (i = 1; i < deltawidth; i++)
           delta = (delta << 1) | Nextbit(&br);
         delta *= Nextbit(&br) ? -1 : 1;
         if (delta == 1 - (1 << (inwordsize - 1)))
           delta -= Nextbit(&br);
+        sample += delta;
+        assert(sample >= -(1 << (inwordsize - 1)) &&
+               sample < (1 << (inwordsize - 1)));
       }
-      sample += delta;
       outsample = sample << (outwordsize - inwordsize);
+      if (outsample < 0)
+        outsample += 1 << outwordsize;
       for (i = outwordsize - 8; i >= 0; i -= 8)
         putchar(outsample >> i);
     }
   }
+  return 0;
 }
