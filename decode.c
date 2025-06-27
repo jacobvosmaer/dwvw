@@ -22,18 +22,21 @@ void fail(char *fmt, ...) {
 
 struct bitreader {
   FILE *f;
-  int bit, c;
+  int bit, c, nbytes;
 };
 
 word nextbit(struct bitreader *br) {
   if (!(br->bit % 8)) {
     br->c = fgetc(br->f);
     br->bit = 0;
+    br->nbytes++;
   }
-  if (br->c < 0)
+  if (br->c < 0) {
+    br->nbytes--;
     return br->c;
-  else
+  } else {
     return (br->c & (1 << (7 - br->bit++))) > 0;
+  }
 }
 
 word Nextbit(struct bitreader *br) {
@@ -45,9 +48,55 @@ word Nextbit(struct bitreader *br) {
 
 word bit(word shift) { return (word)1 << shift; }
 
+struct decoder {
+  struct bitreader br;
+  word deltawidth, sample, wordsize;
+};
+
+void decoderinit(struct decoder *d, word wordsize, FILE *f) {
+  struct decoder empty = {0};
+  *d = empty;
+  d->br.f = f;
+  d->wordsize = wordsize;
+}
+
+int decodernext(struct decoder *d, word *sample) {
+  word dwm = 0;
+  while (dwm < d->wordsize / 2 && !Nextbit(&d->br))
+    dwm++;
+  if (dwm) {
+    dwm *= Nextbit(&d->br) ? -1 : 1;
+    d->deltawidth += dwm;
+    if (d->deltawidth < 0)
+      d->deltawidth += d->wordsize;
+    else if (d->deltawidth >= d->wordsize)
+      d->deltawidth -= d->wordsize;
+    assert(d->deltawidth >= 0 && d->deltawidth <= d->wordsize);
+  }
+  if (d->deltawidth) {
+    word i, delta;
+    for (i = 1, delta = 1; i < d->deltawidth; i++)
+      delta = (delta << 1) | Nextbit(&d->br);
+    delta *= Nextbit(&d->br) ? -1 : 1;
+    if (delta == 1 - bit(d->wordsize - 1))
+      delta -= Nextbit(&d->br);
+    d->sample += delta;
+    assert(d->sample >= -bit(d->wordsize - 1) &&
+           d->sample < bit(d->wordsize - 1));
+  }
+*sample=d->sample;
+  return 1;
+}
+
+int decoderclose(struct decoder *d) {
+  word b = 0;
+  while (d->br.nbytes & 1 && b >= 0)
+    b = nextbit(&d->br);
+  return b >= 0;
+}
+
 int main(int argc, char **argv) {
   word inwordsize, outwordsize, nchannels, nsamples;
-  struct bitreader br = {0};
   if (argc != 5) {
     fputs("Usage: decode INWORDSIZE OUTWORDSIZE NCHANNELS NSAMPLES\n", stderr);
     return 1;
@@ -65,38 +114,19 @@ int main(int argc, char **argv) {
   nsamples = atoi(argv[4]);
   if (nsamples < 1)
     fail("invalid number of samples: %d", nsamples);
-  br.f = stdin;
   while (nchannels--) {
-    word deltawidth = 0, sample = 0;
+    struct decoder d;
+    decoderinit(&d, inwordsize, stdin);
     while (nsamples--) {
-      word i, dwm = 0, outsample;
-      while (dwm < inwordsize / 2 && !Nextbit(&br))
-        dwm++;
-      if (dwm) {
-        dwm *= Nextbit(&br) ? -1 : 1;
-        deltawidth += dwm;
-        if (deltawidth < 0)
-          deltawidth += inwordsize;
-        else if (deltawidth >= inwordsize)
-          deltawidth -= inwordsize;
-        assert(deltawidth >= 0 && deltawidth <= inwordsize);
-      }
-      if (deltawidth) {
-        word delta = 1;
-        for (i = 1; i < deltawidth; i++)
-          delta = (delta << 1) | Nextbit(&br);
-        delta *= Nextbit(&br) ? -1 : 1;
-        if (delta == 1 - bit(inwordsize - 1))
-          delta -= Nextbit(&br);
-        sample += delta;
-        assert(sample >= -bit(inwordsize - 1) && sample < bit(inwordsize - 1));
-      }
+      word sample, outsample, i;
+      assert(decodernext(&d, &sample));
       outsample = sample << (outwordsize - inwordsize);
       if (outsample < 0)
         outsample += bit(outwordsize);
       for (i = outwordsize - 8; i >= 0; i -= 8)
         putchar(outsample >> i);
     }
+    assert(decoderclose(&d));
   }
   return 0;
 }
