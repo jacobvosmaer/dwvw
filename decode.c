@@ -26,13 +26,13 @@ struct bitreader {
 };
 
 word nextbit(struct bitreader *br) {
-  if (!(br->bit % 8)) {
+  if (!(br->bit % 8) && br->c >= 0) {
     br->c = fgetc(br->f);
     br->bit = 0;
-    br->nbytes++;
+    if (br->c >= 0)
+      br->nbytes++;
   }
   if (br->c < 0) {
-    br->nbytes--;
     return br->c;
   } else {
     return (br->c & (1 << (7 - br->bit++))) > 0;
@@ -60,7 +60,7 @@ void decoderinit(struct decoder *d, word wordsize, FILE *f) {
   d->wordsize = wordsize;
 }
 
-int decodernext(struct decoder *d, word *sample) {
+char *decodernext(struct decoder *d, word *sample) {
   word dwm = 0;
   while (dwm < d->wordsize / 2 && !Nextbit(&d->br))
     dwm++;
@@ -71,7 +71,8 @@ int decodernext(struct decoder *d, word *sample) {
       d->deltawidth += d->wordsize;
     else if (d->deltawidth >= d->wordsize)
       d->deltawidth -= d->wordsize;
-    assert(d->deltawidth >= 0 && d->deltawidth <= d->wordsize);
+    if (!(d->deltawidth >= 0 && d->deltawidth <= d->wordsize))
+      return "delta width out of range";
   }
   if (d->deltawidth) {
     word i, delta;
@@ -81,18 +82,19 @@ int decodernext(struct decoder *d, word *sample) {
     if (delta == 1 - bit(d->wordsize - 1))
       delta -= Nextbit(&d->br);
     d->sample += delta;
-    assert(d->sample >= -bit(d->wordsize - 1) &&
-           d->sample < bit(d->wordsize - 1));
+    if (!(d->sample >= -bit(d->wordsize - 1) &&
+          d->sample < bit(d->wordsize - 1)))
+      return "sample out of range";
   }
-*sample=d->sample;
-  return 1;
+  *sample = d->sample;
+  return 0;
 }
 
-int decoderclose(struct decoder *d) {
+char *decoderclose(struct decoder *d) {
   word b = 0;
   while (d->br.nbytes & 1 && b >= 0)
     b = nextbit(&d->br);
-  return b >= 0;
+  return b >= 0 ? 0 : "read error";
 }
 
 int main(int argc, char **argv) {
@@ -115,18 +117,21 @@ int main(int argc, char **argv) {
   if (nsamples < 1)
     fail("invalid number of samples: %d", nsamples);
   while (nchannels--) {
+    char *err;
     struct decoder d;
     decoderinit(&d, inwordsize, stdin);
     while (nsamples--) {
       word sample, outsample, i;
-      assert(decodernext(&d, &sample));
+      if (err = decodernext(&d, &sample), err)
+        fail("decoder: %s", err);
       outsample = sample << (outwordsize - inwordsize);
       if (outsample < 0)
         outsample += bit(outwordsize);
       for (i = outwordsize - 8; i >= 0; i -= 8)
         putchar(outsample >> i);
     }
-    assert(decoderclose(&d));
+    if (err = decoderclose(&d), err)
+      fail("decoderclose: %s", err);
   }
   return 0;
 }
