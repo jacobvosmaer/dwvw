@@ -51,6 +51,8 @@ word bit(word shift) { return (word)1 << shift; }
 struct decoder {
   struct bitreader br;
   word deltawidth, sample, wordsize;
+  int dwmstats[32 / 2 + 1];
+  int dwstats[32];
 };
 
 void decoderinit(struct decoder *d, word wordsize, FILE *f) {
@@ -65,6 +67,7 @@ char *decodernext(struct decoder *d, word *sample) {
   /* dwm is encoded in unary as a string of zeroes followed by a sign bit */
   while (dwm < d->wordsize / 2 && !Nextbit(&d->br))
     dwm++;
+  d->dwmstats[dwm]++;
   if (dwm) { /* delta width is changing */
     dwm *= Nextbit(&d->br) ? -1 : 1;
     d->deltawidth += dwm;
@@ -77,6 +80,7 @@ char *decodernext(struct decoder *d, word *sample) {
     if (!(d->deltawidth >= 0 && d->deltawidth <= d->wordsize))
       return "delta width out of range";
   }
+  d->dwstats[d->deltawidth]++;
   if (d->deltawidth) { /* non-zero delta: sample is changing */
     word i, delta;
     /* Start iteration from 1 because the leading 1 of delta is implied */
@@ -105,6 +109,16 @@ char *decoderclose(struct decoder *d) {
   while (d->br.nbytes & 1 && b >= 0)
     b = nextbit(&d->br);
   return b >= 0 ? 0 : "read error";
+}
+
+void decoderprintstats(struct decoder *d, FILE *f) {
+  int i;
+  fputs("dwm stats:\n", f);
+  for (i = 0; i < d->wordsize / 2 + 1; i++)
+    fprintf(f, "%2d %d\n", i, d->dwmstats[i]);
+  fputs("deltawidth stats:\n", f);
+  for (i = 0; i < d->wordsize; i++)
+    fprintf(f, "%2d %d\n", i, d->dwstats[i]);
 }
 
 void putbe(word x, word wordsize, FILE *f) {
@@ -146,6 +160,7 @@ int main(int argc, char **argv) {
     }
     if (err = decoderclose(&d), err)
       fail("decoderclose: %s", err);
+    decoderprintstats(&d, stderr);
   }
   return 0;
 }
