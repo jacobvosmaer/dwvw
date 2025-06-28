@@ -97,6 +97,14 @@ char *decoderclose(struct decoder *d) {
   return b >= 0 ? 0 : "read error";
 }
 
+void putbe(word x, word wordsize, FILE *f) {
+  word shift;
+  if (x < 0)
+    x += bit(wordsize);
+  for (shift = wordsize - 8; shift >= 0; shift -= 8)
+    fputc(x >> shift, f);
+}
+
 int main(int argc, char **argv) {
   word inwordsize, outwordsize, nchannels, nsamples;
   if (argc != 5) {
@@ -121,14 +129,10 @@ int main(int argc, char **argv) {
     struct decoder d;
     decoderinit(&d, inwordsize, stdin);
     while (nsamples--) {
-      word sample, outsample, i;
+      word sample;
       if (err = decodernext(&d, &sample), err)
         fail("decoder: %s", err);
-      outsample = sample << (outwordsize - inwordsize);
-      if (outsample < 0)
-        outsample += bit(outwordsize);
-      for (i = outwordsize - 8; i >= 0; i -= 8)
-        putchar(outsample >> i);
+      putbe(sample << (outwordsize - inwordsize), outwordsize, stdout);
     }
     if (err = decoderclose(&d), err)
       fail("decoderclose: %s", err);
