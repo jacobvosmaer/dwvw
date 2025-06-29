@@ -44,6 +44,7 @@ void copy(FILE *fout, FILE *fin, int64_t n) {
 int main(int argc, char **argv) {
   unsigned char buf[18];
   int commseen = 0, ssndseen = 0, nchannels, wordsize;
+  uint16_t outwordsize = 0;
   uint32_t nsamples;
   int32_t formsize;
   FILE *fin, *fout;
@@ -84,7 +85,6 @@ int main(int argc, char **argv) {
       if (fread(buf, 1, 18, fin) != 18)
         fail("read COMM");
       chunksize -= 18;
-      fwrite(buf, 1, 18, fout);
       nchannels = readsint(buf, 16);
       if (nchannels != 1)
         fail("unsupported number of channels: %d\n", nchannels);
@@ -92,6 +92,10 @@ int main(int argc, char **argv) {
       wordsize = readsint(buf + 6, 16);
       if (wordsize < 1 || wordsize > 32)
         fail("invalid wordsize: %d\n", wordsize);
+      outwordsize = (wordsize + 7) & ~7;
+      buf[6] = outwordsize >> 8;
+      buf[7] = outwordsize;
+      fwrite(buf, 1, 18, fout);
       fwrite("NONE\x0enot compressed\x00", 1, 20, fout);
       if (fseek(fin, chunksize, SEEK_CUR))
         fail("fseek failed");
@@ -105,7 +109,7 @@ int main(int argc, char **argv) {
       if (memcmp(buf, "\x00\x00\x00\x00\x00\x00\x00\x00", 8))
         fail("unexpected SSND first 8 bytes");
       fputs("SSND", fout);
-      putbe(nsamples * 2, 32, fout);
+      putbe(nsamples * outwordsize / 8, 32, fout);
       putbe(0, 32, fout);
       putbe(0, 32, fout);
       decoderinit(&d, wordsize, fin);
@@ -114,7 +118,7 @@ int main(int argc, char **argv) {
         char *err;
         if (err = decodernext(&d, &sample), err)
           fail("decoder: %s");
-        putbe(sample << 4, 16, fout);
+        putbe(sample << (outwordsize - wordsize), outwordsize, fout);
       }
       decoderclose(&d);
     } else {
