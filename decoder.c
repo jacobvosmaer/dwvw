@@ -44,17 +44,14 @@ char *Decodernext(struct decoder *d, word *sample) {
   while (dwm < d->wordsize / 2 && !Nextbit(d))
     dwm++;
   d->dwmstats[dwm]++;
-  if (dwm) { /* delta width is changing */
+  if (dwm) { /* deltawidth is changing */
     dwm *= Nextbit(d) ? -1 : 1;
     d->deltawidth += dwm;
     /* Deltawidth wraps around. This allows the encoding to minimize the
      * absolute value of dwm, which matters because dwm is encoded in unary. */
-    if (d->deltawidth < 0)
+    d->deltawidth -= d->wordsize;
+    while (d->deltawidth < 0)
       d->deltawidth += d->wordsize;
-    else if (d->deltawidth >= d->wordsize)
-      d->deltawidth -= d->wordsize;
-    if (!(d->deltawidth >= 0 && d->deltawidth <= d->wordsize))
-      return "delta width out of range";
   }
   d->dwstats[d->deltawidth]++;
   if (d->deltawidth) { /* non-zero delta: sample is changing */
