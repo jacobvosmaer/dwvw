@@ -39,21 +39,21 @@ word nextbit(struct bitreader *br) {
   }
 }
 
-word Nextbit(struct bitreader *br) {
-  word b = nextbit(br);
-  if (b < 0)
-    fail("unexpected EOF: %d", b);
-  return b;
-}
-
 word bit(word shift) { return (word)1 << shift; }
 
 struct decoder {
   struct bitreader br;
   word deltawidth, sample, wordsize;
+  int readerror;
   int dwmstats[32 / 2 + 1];
   int dwstats[32];
 };
+
+word Nextbit(struct decoder *d) {
+  word b = nextbit(&d->br);
+  d->readerror |= b < 0;
+  return d->readerror ? 0 : b;
+}
 
 void decoderinit(struct decoder *d, word wordsize, FILE *f) {
   struct decoder empty = {0};
@@ -62,14 +62,14 @@ void decoderinit(struct decoder *d, word wordsize, FILE *f) {
   d->wordsize = wordsize;
 }
 
-char *decodernext(struct decoder *d, word *sample) {
+char *Decodernext(struct decoder *d, word *sample) {
   word dwm = 0; /* "delta width modifier" */
   /* dwm is encoded in unary as a string of zeroes followed by a sign bit */
-  while (dwm < d->wordsize / 2 && !Nextbit(&d->br))
+  while (dwm < d->wordsize / 2 && !Nextbit(d))
     dwm++;
   d->dwmstats[dwm]++;
   if (dwm) { /* delta width is changing */
-    dwm *= Nextbit(&d->br) ? -1 : 1;
+    dwm *= Nextbit(d) ? -1 : 1;
     d->deltawidth += dwm;
     /* Deltawidth wraps around. This allows the encoding to minimize the
      * absolute value of dwm, which matters because dwm is encoded in unary. */
@@ -85,8 +85,8 @@ char *decodernext(struct decoder *d, word *sample) {
     word i, delta;
     /* Start iteration from 1 because the leading 1 of delta is implied */
     for (i = 1, delta = 1; i < d->deltawidth; i++)
-      delta = (delta << 1) | Nextbit(&d->br);
-    delta *= Nextbit(&d->br) ? -1 : 1;
+      delta = (delta << 1) | Nextbit(d);
+    delta *= Nextbit(d) ? -1 : 1;
     /* The lowest possible value for delta at this point is -(1 << (wordsize
      * -1)). So if wordsize is 8, the lowest possible value is -127. In 2's
      * complement we must also be able to represent -128. To account for this
@@ -94,7 +94,7 @@ char *decodernext(struct decoder *d, word *sample) {
      * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and -128
      * is 1111111 1 1. */
     if (delta == 1 - bit(d->wordsize - 1))
-      delta -= Nextbit(&d->br);
+      delta -= Nextbit(d);
     d->sample += delta;
     if (!(d->sample >= -bit(d->wordsize - 1) &&
           d->sample < bit(d->wordsize - 1)))
@@ -102,6 +102,11 @@ char *decodernext(struct decoder *d, word *sample) {
   }
   *sample = d->sample;
   return 0;
+}
+
+char *decodernext(struct decoder *d, word *sample) {
+  char *err = Decodernext(d, sample);
+  return d->readerror ? "read error" : err;
 }
 
 char *decoderclose(struct decoder *d) {
