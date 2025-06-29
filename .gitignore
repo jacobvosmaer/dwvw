@@ -2,3 +2,4 @@ decode
 *.raw
 *.dSYM/
 *.wav
+*.o

@@ -1,6 +1,8 @@
-CFLAGS += -std=gnu89 -Wall -pedantic -flto
-OBJS = decode
-all: $(OBJS)
+CFLAGS += -std=gnu89 -Wall -pedantic
+OBJS = decode.o decoder.o
+EXE = decode
+all: $(EXE)
 clean:
-	rm -f -- $(OBJS)
-decode: decoder.c
+	rm -f -- $(OBJS) $(EXE)
+decode: decoder.o
+decoder.o: decoder.h
