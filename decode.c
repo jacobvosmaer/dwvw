@@ -1,23 +1,9 @@
 
 #include "decoder.h"
-#include <stdarg.h>
+#include "fail.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-#define assert(x)                                                              \
-  if (!(x))                                                                    \
-  __builtin_trap()
-
-void fail(char *fmt, ...) {
-  va_list ap;
-  fputs("error: ", stderr);
-  va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
-  va_end(ap);
-  fputc('\n', stderr);
-  exit(1);
-}
 
 void putbe(word x, word wordsize, FILE *f) {
   word shift;

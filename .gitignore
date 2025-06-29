@@ -3,3 +3,5 @@ decode
 *.dSYM/
 *.wav
 *.o
+decompress
+*.aiff
