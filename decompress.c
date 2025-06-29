@@ -43,7 +43,8 @@ void copy(FILE *fout, FILE *fin, int64_t n) {
 
 int main(int argc, char **argv) {
   unsigned char buf[18];
-  int commseen = 0, ssndseen = 0, nchannels, nsamples, wordsize;
+  int commseen = 0, ssndseen = 0, nchannels, wordsize;
+  uint32_t nsamples;
   int32_t formsize;
   FILE *fin, *fout;
   if (argc != 3) {
@@ -87,9 +88,7 @@ int main(int argc, char **argv) {
       nchannels = readsint(buf, 16);
       if (nchannels != 1)
         fail("unsupported number of channels: %d\n", nchannels);
-      nsamples = readsint(buf + 2, 32);
-      if (nsamples < 0)
-        fail("negative number of samples");
+      nsamples = readuint(buf + 2, 32);
       wordsize = readsint(buf + 6, 16);
       if (wordsize < 1 || wordsize > 32)
         fail("invalid wordsize: %d\n", wordsize);
