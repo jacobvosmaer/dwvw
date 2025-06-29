@@ -29,7 +29,8 @@ void decoderinit(struct decoder *d, word wordsize, FILE *f) {
 
 char *Decodernext(struct decoder *d, word *sample) {
   word dwm = 0; /* "delta width modifier" */
-  /* dwm is encoded in unary as a string of zeroes followed by a sign bit */
+  /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and a
+   * sign bit. */
   while (dwm < d->wordsize / 2 && !Nextbit(d))
     dwm++;
   d->dwmstats[dwm]++;
