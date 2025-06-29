@@ -1,3 +1,13 @@
+/*
+Decoder for the Typhoon DWVW audio compression format.
+
+DWVW was invented 1991 by Magnus Lidström and is copyright 1993 by NuEdge
+Development.
+
+This decoder is based on documentation in "fmt_typh.rtf" published on
+ftp.t0.or.at.
+*/
+
 #ifndef DECODER_H
 #define DECODER_H
 
