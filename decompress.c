@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
 
   if (fread(buf, 1, 12, fin) != 12)
     fail("short read");
-  if (memcmp(buf, "FORM", 4) || memcmp(buf + 8, "AIFC", 4))
+  if (readsint(buf, 32) != 'FORM' || readsint(buf + 8, 32) != 'AIFC')
     fail("invalid header: %12.12s", buf);
   formsize = readsint(buf + 4, 32);
   if (formsize < 0)
@@ -68,16 +68,17 @@ int main(int argc, char **argv) {
   fwrite("FORMxxxxAIFC", 1, 12, fout);
   formsize -= 4;
   while (formsize > 0) {
-    int32_t chunksize;
+    int32_t chunksize, ID;
     if (fread(buf, 1, 8, fin) != 8)
       fail("chunk header: short read");
     formsize -= 8;
     fprintf(stderr, "chunk: %4.4s\n", buf);
+    ID = readsint(buf, 32);
     chunksize = readsint(buf + 4, 32);
     if (chunksize < 0)
       fail("negative chunk size: %d\n", chunksize);
     formsize -= chunksize;
-    if (!memcmp(buf, "COMM", 4)) {
+    if (ID == 'COMM') {
       if (commseen)
         fail("duplicate COMM chunk");
       commseen = 1;
@@ -99,7 +100,7 @@ int main(int argc, char **argv) {
       fwrite("NONE\x0enot compressed\x00", 1, 20, fout);
       if (fseek(fin, chunksize, SEEK_CUR))
         fail("fseek failed");
-    } else if (!memcmp(buf, "SSND", 4)) {
+    } else if (ID == 'SSND') {
       struct decoder d;
       if (ssndseen)
         fail("duplicate SSND chunk");
@@ -108,9 +109,9 @@ int main(int argc, char **argv) {
         fail("SSND before COMM not supported");
       if (fread(buf, 1, 8, fin) != 8)
         fail("read SSND first 8 bytes");
-      if (memcmp(buf, "\x00\x00\x00\x00\x00\x00\x00\x00", 8))
+      if (readuint(buf, 32) || readuint(buf + 4, 32))
         fail("unexpected SSND first 8 bytes");
-      fputs("SSND", fout);
+      putbe('SSND', 32, fout);
       putbe(nsamples * outwordsize / 8, 32, fout);
       putbe(0, 32, fout);
       putbe(0, 32, fout);
