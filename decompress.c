@@ -104,6 +104,8 @@ int main(int argc, char **argv) {
       if (ssndseen)
         fail("duplicate SSND chunk");
       ssndseen = 1;
+      if (!commseen)
+        fail("SSND before COMM not supported");
       if (fread(buf, 1, 8, fin) != 8)
         fail("read SSND first 8 bytes");
       if (memcmp(buf, "\x00\x00\x00\x00\x00\x00\x00\x00", 8))
