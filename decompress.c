@@ -9,6 +9,9 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#define nelem(x) (sizeof(x) / sizeof(*(x)))
 
 int64_t readuint(unsigned char *p, int width) {
   int i;
@@ -26,21 +29,32 @@ int64_t readsint(unsigned char *p, int width) {
   return x;
 }
 
-void putbe(word x, word wordsize, FILE *f) {
+int putbe(word x, word wordsize, unsigned char *p) {
   word shift;
   if (x < 0)
     x += bit(wordsize);
   for (shift = wordsize - 8; shift >= 0; shift -= 8)
-    fputc(x >> shift, f);
+    *p++ = x >> shift;
+  return wordsize / 8;
 }
 
+struct chunk {
+  int32_t ID, size;
+  unsigned char *data;
+} chunk[32];
+
+int nchunk;
+
+unsigned char commbuf[38];
+
 int main(int argc, char **argv) {
-  int commseen = 0, ssndseen = 0, nchannels, wordsize, infd;
-  unsigned char *in, *p;
+  int nchannels, wordsize, infd, outfd, i;
+  struct chunk *ch;
+  unsigned char *in, *p, *informend, *out, *ssndstart;
   uint16_t outwordsize = 0;
   uint32_t nsamples;
   int32_t formsize;
-  FILE *fout;
+  struct chunk *comm = 0, *ssnd = 0, ssndcompressed;
   struct stat st;
   if (argc != 3) {
     fputs("Usage: decompress INFILE OUTFILE\n", stderr);
@@ -53,7 +67,7 @@ int main(int argc, char **argv) {
   if (in = mmap(0, st.st_size, PROT_READ, MAP_SHARED, infd, 0),
       in == MAP_FAILED)
     fail("mmap %s: %s", argv[1], strerror(errno));
-  if (fout = fopen(argv[2], "wb"), !fout)
+  if (outfd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC), outfd < 0)
     fail("cannot open: %s", argv[2]);
   p = in;
   if (readsint(p, 32) != 'FORM' || readsint(p + 8, 32) != 'AIFC')
@@ -62,74 +76,94 @@ int main(int argc, char **argv) {
   if (formsize < 0)
     fail("negative FORM size: %d\n", formsize);
   p += 12;
-  fprintf(stderr, "formsize=%d\n", formsize);
-  fwrite("FORMxxxxAIFC", 1, 12, fout);
-  formsize -= 4;
-  while (formsize > 0) {
-    int32_t chunksize, ID;
-    fprintf(stderr, "chunk: %4.4s\n", p);
-    ID = readsint(p, 32);
-    chunksize = readsint(p + 4, 32);
-    p += 8;
-    formsize -= 8;
-    if (chunksize < 0)
-      fail("negative chunk size: %d\n", chunksize);
-    formsize -= chunksize;
-    if (ID == 'COMM') {
-      if (commseen)
-        fail("duplicate COMM chunk");
-      commseen = 1;
-      fwrite("COMM\x00\x00\x00\x26", 1, 8, fout);
-      nchannels = readsint(p, 16);
-      if (nchannels != 1)
-        fail("unsupported number of channels: %d\n", nchannels);
-      nsamples = readuint(p + 2, 32);
-      wordsize = readsint(p + 6, 16);
-      if (wordsize < 1 || wordsize > 32)
-        fail("invalid wordsize: %d\n", wordsize);
-      outwordsize = (wordsize + 7) & ~7;
-      fwrite(p, 1, 6, fout);
-      fputc(outwordsize >> 8, fout);
-      fputc(outwordsize, fout);
-      fwrite(p + 8, 1, 10, fout);
-      fwrite("NONE\x0enot compressed\x00", 1, 20, fout);
-      p += chunksize;
-    } else if (ID == 'SSND') {
-      struct decoder d;
-      if (ssndseen)
-        fail("duplicate SSND chunk");
-      ssndseen = 1;
-      if (!commseen)
-        fail("SSND before COMM not supported");
-      if (readuint(p, 32) || readuint(p + 4, 32))
-        fail("unexpected SSND first 8 bytes");
-      p += 8;
-      putbe('SSND', 32, fout);
-      putbe(nsamples * outwordsize / 8, 32, fout);
-      putbe(0, 32, fout);
-      putbe(0, 32, fout);
-      decoderinit(&d, wordsize, p, chunksize - 8);
-      while (nsamples--) {
-        word sample;
-        int err;
-        if (err = decodernext(&d, &sample), err)
-          fail("decoder: %d", err);
-        putbe(sample << (outwordsize - wordsize), outwordsize, fout);
-      }
-      p += decoderpos(&d);
-      if ((p - in) & 1)
-        p++;
-    } else {
-      fwrite(p - 8, 1, 8 + chunksize, fout);
-      p += chunksize;
+  informend = in + 8 + formsize;
+
+  while (p < informend) {
+    ch = chunk + nchunk++;
+    if (nchunk == nelem(chunk))
+      fail("too many chunks");
+    ch->ID = readsint(p, 32);
+    ch->size = readsint(p + 4, 32);
+    if (ch->size < 0)
+      fail("chunk %4.4s has negative size %d", p, ch->size);
+    ch->data = p + 8;
+    if (ch->ID == 'COMM') {
+      if (comm)
+        fail("more than one COMM");
+      comm = ch;
+    } else if (ch->ID == 'SSND') {
+      if (ssnd)
+        fail("more than one SSND");
+      ssnd = ch;
     }
+    p += 8 + ch->size;
   }
-  if (formsize)
-    fail("chunk sizes do not add up: %d", formsize);
-  formsize = ftell(fout);
-  if (formsize < 0)
-    fail("ftell: %s", strerror(errno));
-  if (fseek(fout, 4, SEEK_SET))
-    fail("fseek: %s", strerror(errno));
-  putbe(formsize - 8, 32, fout);
+  if (p != informend)
+    fail("sum of chunks %lld larger than FORM", p - informend);
+  if (!comm)
+    fail("missing COMM");
+  if (!ssnd)
+    fail("missing SSND");
+  if (comm->size < 18)
+    fail("COMM too small: %d", comm->size);
+  memmove(commbuf, comm->data, 18);
+  memmove(commbuf + 18, "NONE\x0enot compressed\x00", 20);
+  comm->data = commbuf;
+  comm->size = sizeof(commbuf);
+  nchannels = readsint(comm->data, 16);
+  if (nchannels < 1)
+    fail("invalid number of channels: %d", nchannels);
+  nsamples = readsint(comm->data + 2, 32);
+  if (nsamples < 0)
+    fail("invalid number of samples: %d", nsamples);
+  wordsize = readsint(comm->data + 6, 16);
+  if (wordsize < 1 || wordsize > 32)
+    fail("invalid wordsize: %d", wordsize);
+  outwordsize = (wordsize + 7) & ~7;
+  comm->data[6] = outwordsize >> 8;
+  comm->data[7] = outwordsize;
+  ssndcompressed = *ssnd;
+  ssnd->size = 8 + nsamples * nchannels * outwordsize / 8;
+  for (ch = chunk, formsize = 4; ch < chunk + nchunk; ch++)
+    formsize += ch->size;
+  if (ftruncate(outfd, formsize + 8))
+    fail("ftruncate: %s", strerror(errno));
+  if (out = mmap(0, formsize + 8, PROT_WRITE, MAP_SHARED, outfd, 0),
+      out == MAP_FAILED)
+    fail("mmap %s: %s", argv[2], strerror(errno));
+  p = out;
+  p += putbe('FORM', 32, p);
+  p += putbe(formsize, 32, p);
+  p += putbe('AIFC', 32, p);
+  for (ch = chunk; ch < chunk + nchunk; ch++) {
+    p += putbe(ch->ID, 32, p);
+    p += putbe(ch->size, 32, p);
+    if (ch->ID == 'SSND')
+      ssndstart = p;
+    else
+      memmove(p, ch->data, ch->size);
+    p += ch->size;
+  }
+  putbe(0, 32, ssndstart);
+  putbe(0, 32, ssndstart + 4);
+  ssndcompressed.data += 8;
+  for (i = 0; i < nchannels; i++) {
+    struct decoder d;
+    int pos, j;
+    decoderinit(&d, wordsize, ssndcompressed.data, ssndcompressed.size);
+    p = ssndstart + 8 + (i - (nchannels - 1)) * outwordsize / 8;
+    for (j = 0; j < nsamples; j++) {
+      word sample;
+      int err;
+      if (err = decodernext(&d, &sample), err)
+        fail("decoder: %d", err);
+      p += (nchannels - 1) * outwordsize / 8;
+      p += putbe(sample << (outwordsize - wordsize), outwordsize, p);
+    }
+    pos = decoderpos(&d);
+    if (pos & 1)
+      pos++;
+    ssndcompressed.data += pos;
+    ssndcompressed.size -= pos;
+  }
 }
