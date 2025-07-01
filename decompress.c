@@ -2,10 +2,13 @@
 #include "decoder.h"
 #include "fail.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 int64_t readuint(unsigned char *p, int width) {
   int i;
@@ -31,50 +34,44 @@ void putbe(word x, word wordsize, FILE *f) {
     fputc(x >> shift, f);
 }
 
-void copy(FILE *fout, FILE *fin, int64_t n) {
-  assert(n >= 0);
-  while (n--) {
-    int c = fgetc(fin);
-    if (c < 0)
-      fail("copy: read error");
-    fputc(c, fout);
-  }
-}
-
 int main(int argc, char **argv) {
-  unsigned char buf[18];
-  int commseen = 0, ssndseen = 0, nchannels, wordsize;
+  int commseen = 0, ssndseen = 0, nchannels, wordsize, infd;
+  unsigned char *in, *p;
   uint16_t outwordsize = 0;
   uint32_t nsamples;
   int32_t formsize;
-  FILE *fin, *fout;
+  FILE *fout;
+  struct stat st;
   if (argc != 3) {
     fputs("Usage: decompress INFILE OUTFILE\n", stderr);
     exit(1);
   }
-  if (fin = fopen(argv[1], "rb"), !fin)
-    fail("cannot open: %s", argv[1]);
+  if (infd = open(argv[1], O_RDONLY), infd < 0)
+    fail("cannot open %s: %s", argv[1], strerror(errno));
+  if (fstat(infd, &st))
+    fail("fstat %s: %s", argv[1], strerror(errno));
+  if (in = mmap(0, st.st_size, PROT_READ, MAP_SHARED, infd, 0),
+      in == MAP_FAILED)
+    fail("mmap %s: %s", argv[1], strerror(errno));
   if (fout = fopen(argv[2], "wb"), !fout)
     fail("cannot open: %s", argv[2]);
-
-  if (fread(buf, 1, 12, fin) != 12)
-    fail("short read");
-  if (readsint(buf, 32) != 'FORM' || readsint(buf + 8, 32) != 'AIFC')
-    fail("invalid header: %12.12s", buf);
-  formsize = readsint(buf + 4, 32);
+  p = in;
+  if (readsint(p, 32) != 'FORM' || readsint(p + 8, 32) != 'AIFC')
+    fail("invalid header: %12.12s", p);
+  formsize = readsint(p + 4, 32);
   if (formsize < 0)
     fail("negative FORM size: %d\n", formsize);
+  p += 12;
   fprintf(stderr, "formsize=%d\n", formsize);
   fwrite("FORMxxxxAIFC", 1, 12, fout);
   formsize -= 4;
   while (formsize > 0) {
     int32_t chunksize, ID;
-    if (fread(buf, 1, 8, fin) != 8)
-      fail("chunk header: short read");
+    fprintf(stderr, "chunk: %4.4s\n", p);
+    ID = readsint(p, 32);
+    chunksize = readsint(p + 4, 32);
+    p += 8;
     formsize -= 8;
-    fprintf(stderr, "chunk: %4.4s\n", buf);
-    ID = readsint(buf, 32);
-    chunksize = readsint(buf + 4, 32);
     if (chunksize < 0)
       fail("negative chunk size: %d\n", chunksize);
     formsize -= chunksize;
@@ -83,23 +80,20 @@ int main(int argc, char **argv) {
         fail("duplicate COMM chunk");
       commseen = 1;
       fwrite("COMM\x00\x00\x00\x26", 1, 8, fout);
-      if (fread(buf, 1, 18, fin) != 18)
-        fail("read COMM");
-      chunksize -= 18;
-      nchannels = readsint(buf, 16);
+      nchannels = readsint(p, 16);
       if (nchannels != 1)
         fail("unsupported number of channels: %d\n", nchannels);
-      nsamples = readuint(buf + 2, 32);
-      wordsize = readsint(buf + 6, 16);
+      nsamples = readuint(p + 2, 32);
+      wordsize = readsint(p + 6, 16);
       if (wordsize < 1 || wordsize > 32)
         fail("invalid wordsize: %d\n", wordsize);
       outwordsize = (wordsize + 7) & ~7;
-      buf[6] = outwordsize >> 8;
-      buf[7] = outwordsize;
-      fwrite(buf, 1, 18, fout);
+      fwrite(p, 1, 6, fout);
+      fputc(outwordsize >> 8, fout);
+      fputc(outwordsize, fout);
+      fwrite(p + 8, 1, 10, fout);
       fwrite("NONE\x0enot compressed\x00", 1, 20, fout);
-      if (fseek(fin, chunksize, SEEK_CUR))
-        fail("fseek failed");
+      p += chunksize;
     } else if (ID == 'SSND') {
       struct decoder d;
       if (ssndseen)
@@ -107,26 +101,27 @@ int main(int argc, char **argv) {
       ssndseen = 1;
       if (!commseen)
         fail("SSND before COMM not supported");
-      if (fread(buf, 1, 8, fin) != 8)
-        fail("read SSND first 8 bytes");
-      if (readuint(buf, 32) || readuint(buf + 4, 32))
+      if (readuint(p, 32) || readuint(p + 4, 32))
         fail("unexpected SSND first 8 bytes");
+      p += 8;
       putbe('SSND', 32, fout);
       putbe(nsamples * outwordsize / 8, 32, fout);
       putbe(0, 32, fout);
       putbe(0, 32, fout);
-      decoderinit(&d, wordsize, fin);
+      decoderinit(&d, wordsize, p, chunksize - 8);
       while (nsamples--) {
         word sample;
-        char *err;
+        int err;
         if (err = decodernext(&d, &sample), err)
-          fail("decoder: %s");
+          fail("decoder: %d", err);
         putbe(sample << (outwordsize - wordsize), outwordsize, fout);
       }
-      decoderclose(&d);
+      p += decoderpos(&d);
+      if ((p - in) & 1)
+        p++;
     } else {
-      fwrite(buf, 1, 8, fout);
-      copy(fout, fin, chunksize);
+      fwrite(p - 8, 1, 8 + chunksize, fout);
+      p += chunksize;
     }
   }
   if (formsize)

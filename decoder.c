@@ -11,41 +11,34 @@ ftp.t0.or.at.
 #include "decoder.h"
 
 word nextbit(struct bitreader *br) {
-  if (!(br->bit % 8) && br->c >= 0) {
-    br->c = fgetc(br->f);
-    br->bit = 0;
-    if (br->c >= 0)
-      br->nbytes++;
+  word b = 0;
+  if (br->bit / 8 < br->size) {
+    b = (br->data[br->bit / 8] & bit(7 - (br->bit % 8))) > 0;
+    br->bit++;
   }
-  if (br->c < 0) {
-    return br->c;
-  } else {
-    return (br->c & (1 << (7 - br->bit++))) > 0;
-  }
+  return b;
 }
 
-word Nextbit(struct decoder *d) {
-  word b = nextbit(&d->br);
-  d->readerror |= b < 0;
-  return d->readerror ? 0 : b;
-}
+static int overflow(struct bitreader *br) { return br->bit / 8 >= br->size; }
 
-void decoderinit(struct decoder *d, word wordsize, FILE *f) {
+void decoderinit(struct decoder *d, word wordsize, unsigned char *data,
+                 int size) {
   struct decoder empty = {0};
   *d = empty;
-  d->br.f = f;
+  d->br.data = data;
+  d->br.size = size;
   d->wordsize = wordsize;
 }
 
-char *Decodernext(struct decoder *d, word *sample) {
+int Decodernext(struct decoder *d, word *sample) {
   word dwm = 0; /* "delta width modifier" */
   /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and a
    * sign bit. */
-  while (dwm < d->wordsize / 2 && !Nextbit(d))
+  while (dwm < d->wordsize / 2 && !nextbit(&d->br))
     dwm++;
   d->dwmstats[dwm]++;
   if (dwm) { /* deltawidth is changing */
-    dwm *= Nextbit(d) ? -1 : 1;
+    dwm *= nextbit(&d->br) ? -1 : 1;
     d->deltawidth += dwm;
     /* Deltawidth wraps around. This allows the encoding to minimize the
      * absolute value of dwm, which matters because dwm is encoded in unary. */
@@ -58,8 +51,8 @@ char *Decodernext(struct decoder *d, word *sample) {
     word i, delta;
     /* Start iteration from 1 because the leading 1 of delta is implied */
     for (i = 1, delta = 1; i < d->deltawidth; i++)
-      delta = (delta << 1) | Nextbit(d);
-    delta *= Nextbit(d) ? -1 : 1;
+      delta = (delta << 1) | nextbit(&d->br);
+    delta *= nextbit(&d->br) ? -1 : 1;
     /* The lowest possible value for delta at this point is -(1 << (wordsize
      * -1)). So if wordsize is 8, the lowest possible value is -127. In 2's
      * complement we must also be able to represent -128. To account for this
@@ -67,27 +60,23 @@ char *Decodernext(struct decoder *d, word *sample) {
      * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and -128
      * is 1111111 1 1. */
     if (delta == 1 - bit(d->wordsize - 1))
-      delta -= Nextbit(d);
+      delta -= nextbit(&d->br);
     d->sample += delta;
     if (!(d->sample >= -bit(d->wordsize - 1) &&
           d->sample < bit(d->wordsize - 1)))
-      return "sample out of range";
+      return -1;
   }
   *sample = d->sample;
   return 0;
 }
 
-char *decodernext(struct decoder *d, word *sample) {
-  char *err = Decodernext(d, sample);
-  return d->readerror ? "read error" : err;
+int decodernext(struct decoder *d, word *sample) {
+  int err = Decodernext(d, sample);
+  if (overflow(&d->br))
+    err--;
+  return err;
 }
-
-char *decoderclose(struct decoder *d) {
-  word b = 0;
-  while (d->br.nbytes & 1 && b >= 0)
-    b = nextbit(&d->br);
-  return b >= 0 ? 0 : "read error";
-}
+int decoderpos(struct decoder *d) { return d->br.bit / 8 + 1; }
 
 void decoderprintstats(struct decoder *d, FILE *f) {
   int i;
