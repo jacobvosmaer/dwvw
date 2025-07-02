@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
   if (in = mmap(0, st.st_size, PROT_READ, MAP_SHARED, infd, 0),
       in == MAP_FAILED)
     fail("mmap %s: %s", argv[1], strerror(errno));
-  if (outfd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC), outfd < 0)
+  if (outfd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0644), outfd < 0)
     fail("cannot open: %s", argv[2]);
   p = in;
   if (readsint(p, 32) != 'FORM' || readsint(p + 8, 32) != 'AIFC')
