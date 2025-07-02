@@ -151,14 +151,14 @@ int main(int argc, char **argv) {
     struct decoder d;
     int pos, j;
     decoderinit(&d, wordsize, ssndcompressed.data, ssndcompressed.size);
-    p = ssndstart + 8 + (i - (nchannels - 1)) * outwordsize / 8;
+    p = ssndstart + 8 + i * outwordsize / 8;
     for (j = 0; j < nsamples; j++) {
       word sample;
       int err;
       if (err = decodernext(&d, &sample), err)
         fail("decoder: %d", err);
-      p += (nchannels - 1) * outwordsize / 8;
       p += putbe(sample << (outwordsize - wordsize), outwordsize, p);
+      p += (nchannels - 1) * outwordsize / 8;
     }
     pos = decoderpos(&d);
     if (pos & 1)
