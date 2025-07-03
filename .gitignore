@@ -5,3 +5,4 @@ decode
 *.o
 decompress
 *.aiff
+*.C01
