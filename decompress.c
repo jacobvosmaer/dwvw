@@ -1,7 +1,6 @@
 
 #include "decoder.h"
 #include "fail.h"
-#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -61,14 +60,14 @@ int main(int argc, char **argv) {
     exit(1);
   }
   if (infd = open(argv[1], O_RDONLY), infd < 0)
-    fail("cannot open %s: %s", argv[1], strerror(errno));
+    failerrno("cannot open %s", argv[1]);
   if (fstat(infd, &st))
-    fail("fstat %s: %s", argv[1], strerror(errno));
+    failerrno("fstat %s", argv[1]);
   if (in = mmap(0, st.st_size, PROT_READ, MAP_SHARED, infd, 0),
       in == MAP_FAILED)
-    fail("mmap %s: %s", argv[1], strerror(errno));
+    failerrno("mmap %s", argv[1]);
   if (outfd = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, 0644), outfd < 0)
-    fail("cannot open: %s", argv[2]);
+    failerrno("open: %s", argv[2]);
   p = in;
   if (readsint(p, 32) != 'FORM' || readsint(p + 8, 32) != 'AIFC')
     fail("invalid header: %12.12s", p);
@@ -127,10 +126,10 @@ int main(int argc, char **argv) {
   for (ch = chunk, formsize = 4; ch < chunk + nchunk; ch++)
     formsize += ch->size;
   if (ftruncate(outfd, formsize + 8))
-    fail("ftruncate: %s", strerror(errno));
+    failerrno("ftruncate");
   if (out = mmap(0, formsize + 8, PROT_WRITE, MAP_SHARED, outfd, 0),
       out == MAP_FAILED)
-    fail("mmap %s: %s", argv[2], strerror(errno));
+    failerrno("mmap %s", argv[2]);
   p = out;
   p += putbe('FORM', 32, p);
   p += putbe(formsize, 32, p);

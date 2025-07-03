@@ -1,7 +1,6 @@
 
 #include "decoder.h"
 #include "fail.h"
-#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,10 +39,10 @@ int main(int argc, char **argv) {
   if (nsamples < 1)
     fail("invalid number of samples: %d", nsamples);
   if (fstat(STDIN_FILENO, &st))
-    fail("stat stdin: %s", strerror(errno));
+    failerrno("stat stdin");
   data = mmap(0, st.st_size, PROT_READ, MAP_SHARED, STDIN_FILENO, 0);
   if (data == MAP_FAILED)
-    fail("mmap stdin: %s", strerror(errno));
+    failerrno("mmap stdin");
   while (nchannels--) {
     word i;
     int err;
