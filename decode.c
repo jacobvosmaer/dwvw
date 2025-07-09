@@ -9,14 +9,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-void putbe(word x, word wordsize, FILE *f) {
-  word shift;
-  if (x < 0)
-    x += bit(wordsize);
-  for (shift = wordsize - 8; shift >= 0; shift -= 8)
-    fputc(x >> shift, f);
-}
-
 int main(int argc, char **argv) {
   word inwordsize, outwordsize, nchannels, nsamples;
   void *data;
@@ -50,9 +42,11 @@ int main(int argc, char **argv) {
     decoderinit(&d, inwordsize, data, st.st_size);
     for (i = 0; i < nsamples; i++) {
       word sample;
+      unsigned char buf[4];
       if (err = decodernext(&d, &sample), err)
         fail("decoder: %d", err);
-      putbe(sample << (outwordsize - inwordsize), outwordsize, stdout);
+      putbe(sample << (outwordsize - inwordsize), outwordsize, buf);
+      fwrite(buf, 1, sizeof(buf), stdout);
     }
     decoderprintstats(&d, stderr);
   }

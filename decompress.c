@@ -1,6 +1,8 @@
 
+#include "aiff.h"
 #include "decoder.h"
 #include "fail.h"
+#include "int.h"
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,77 +14,13 @@
 
 #define nelem(x) (sizeof(x) / sizeof(*(x)))
 
-int64_t readuint(unsigned char *p, int width) {
-  int i;
-  int64_t x;
-  assert(width > 0 && width <= 32 && !(width & 8));
-  for (i = 0, x = 0; i < width / 8; i++)
-    x = (x << 8) | (int64_t)*p++;
-  return x;
-}
-
-int64_t readsint(unsigned char *p, int width) {
-  int64_t x = readuint(p, width), sup = (int64_t)1 << (width - 1);
-  if (x >= sup)
-    x -= (int64_t)1 << width;
-  return x;
-}
-
-int putbe(word x, word wordsize, unsigned char *p) {
-  word shift;
-  if (x < 0)
-    x += bit(wordsize);
-  for (shift = wordsize - 8; shift >= 0; shift -= 8)
-    *p++ = x >> shift;
-  return wordsize / 8;
-}
-
-struct chunk {
-  int32_t ID, size;
-  unsigned char *data;
-} chunk[32];
-
-int nchunk;
-
-void findchunks(unsigned char *data, int size) {
-  unsigned char *end = data + size;
-  while (data < end) {
-    struct chunk *ch = chunk + nchunk++;
-    if (nchunk == nelem(chunk))
-      fail("too many chunks");
-    ch->ID = readsint(data, 32);
-    ch->size = readsint(data + 4, 32);
-    if (ch->size < 0)
-      fail("chunk %4.4s has negative size %d", data, ch->size);
-    ch->data = data + 8;
-    data += 8 + ch->size;
-  }
-  if (data != end)
-    fail("sum of chunks %lld larger than FORM", data - end);
-}
-
-struct chunk *getchunk(int32_t ID) {
-  unsigned char idbuf[4];
-  struct chunk *ch, *out = 0;
-  putbe(ID, 32, idbuf);
-  for (ch = chunk; ch < chunk + nchunk; ch++) {
-    if (ch->ID == ID) {
-      if (out)
-        fail("more than one %s chunk", idbuf);
-      else
-        out = ch;
-    }
-  }
-  if (!out)
-    fail("missing %s", idbuf);
-  return out;
-}
-
+struct aiff aiff;
 unsigned char commbuf[38];
 
 int main(int argc, char **argv) {
   int nchannels, wordsize, infd, outfd, i;
   struct chunk *ch;
+  char *err;
   unsigned char *in, *p, *out, *ssndstart;
   uint16_t outwordsize = 0;
   uint32_t nsamples;
@@ -104,16 +42,10 @@ int main(int argc, char **argv) {
   if (in = mmap(0, st.st_size, PROT_READ, MAP_SHARED, infd, 0),
       in == MAP_FAILED)
     failerrno("mmap %s", argv[1]);
-  p = in;
-  if (readsint(p, 32) != 'FORM' || readsint(p + 8, 32) != 'AIFC')
-    fail("invalid header: %12.12s", p);
-  formsize = readsint(p + 4, 32);
-  if (formsize < 0)
-    fail("negative FORM size: %d\n", formsize);
-  p += 12;
-  findchunks(p, formsize - 4);
+  if (err = aiffload(&aiff, in, st.st_size), err)
+    fail("load aiff: %s", err);
 
-  comm = getchunk('COMM');
+  comm = aiffchunk(&aiff, 'COMM');
   if (comm->size < 18)
     fail("COMM too small: %d", comm->size);
   memmove(commbuf, comm->data, 18);
@@ -133,11 +65,11 @@ int main(int argc, char **argv) {
   comm->data[6] = outwordsize >> 8;
   comm->data[7] = outwordsize;
 
-  ssnd = getchunk('SSND');
+  ssnd = aiffchunk(&aiff, 'SSND');
   ssndcompressed = *ssnd;
   ssnd->size = 8 + nsamples * nchannels * outwordsize / 8;
 
-  for (ch = chunk, formsize = 4; ch < chunk + nchunk; ch++)
+  for (ch = aiff.chunk, formsize = 4; ch < aiff.chunk + aiff.nchunk; ch++)
     formsize += ch->size;
   if (ftruncate(outfd, formsize + 8))
     failerrno("ftruncate");
@@ -148,7 +80,7 @@ int main(int argc, char **argv) {
   p += putbe('FORM', 32, p);
   p += putbe(formsize, 32, p);
   p += putbe('AIFC', 32, p);
-  for (ch = chunk; ch < chunk + nchunk; ch++) {
+  for (ch = aiff.chunk; ch < aiff.chunk + aiff.nchunk; ch++) {
     p += putbe(ch->ID, 32, p);
     p += putbe(ch->size, 32, p);
     if (ch->ID == 'SSND')

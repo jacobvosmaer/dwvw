@@ -11,11 +11,9 @@ ftp.t0.or.at.
 #ifndef DECODER_H
 #define DECODER_H
 
+#include "int.h"
 #include <stdint.h>
 #include <stdio.h>
-
-typedef int64_t word;
-#define bit(shift) ((word)1 << (shift))
 
 struct bitreader {
   unsigned char *data;

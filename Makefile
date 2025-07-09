@@ -4,7 +4,9 @@ EXE = decode decompress
 all: $(EXE)
 clean:
 	rm -f -- $(OBJS) $(EXE)
-decode: decoder.o fail.o
 decoder.o: decoder.h
+decode: decoder.o fail.o int.o
 fail.o: fail.h
-decompress: decoder.o fail.o
+aiff.o: aiff.h int.o
+int.o: int.h
+decompress: decoder.o fail.o aiff.o int.o
