@@ -1,5 +1,5 @@
 CFLAGS += -std=gnu89 -Wall -pedantic
-OBJS = decode.o decoder.o
+OBJS = decode.o decoder.o fail.o int.o
 EXE = decode decompress
 all: $(EXE)
 clean:

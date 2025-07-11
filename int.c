@@ -4,7 +4,7 @@
 int64_t readuint(unsigned char *p, int width) {
   int i;
   int64_t x;
-  assert(width > 0 && width <= 32 && !(width & 8));
+  assert(width > 0 && width <= 32 && !(width % 8));
   for (i = 0, x = 0; i < width / 8; i++)
     x = (x << 8) | (int64_t)*p++;
   return x;

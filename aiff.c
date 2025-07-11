@@ -3,6 +3,7 @@
 #include "fail.h"
 #include "int.h"
 #include <stdlib.h>
+#include <string.h>
 
 char *aiffload(struct aiff *aiff, unsigned char *data, int size) {
   unsigned char *p = data, *end;
@@ -59,6 +60,36 @@ struct chunk *aiffchunk(struct aiff *aiff, int32_t ID) {
     }
   }
   return out;
+}
+
+char *aiffcomm(struct aiff *aiff, struct comm *comm) {
+  struct chunk *ch = aiffchunk(aiff, 'COMM');
+  unsigned char *p;
+  int namesize;
+  if (!ch)
+    return "COMM not found or duplicated";
+  p = ch->data;
+  comm->ckID = ch->ID;
+  comm->ckDataSize = ch->size;
+  comm->numChannels = readsint(p, 16);
+  p += 2;
+  if (comm->numChannels < 1)
+    return "must have at least 1 channel";
+  comm->numSampleFrames = readuint(p, 32);
+  p += 4;
+  comm->sampleSize = readsint(p, 16);
+  p += 2;
+  if (comm->sampleSize < 1 || comm->sampleSize > 32)
+    return "invalid sample size";
+  memmove(comm->sampleRate, p, 10);
+  p += 10;
+  comm->compressionType = readsint(p, 32);
+  p += 4;
+  comm->compressionName = (char *)p;
+  namesize = readuint(p, 8);
+  if (ch->size - 24 + (namesize & 1) != namesize)
+    return "invalid compression name string";
+  return 0;
 }
 
 void aifffree(struct aiff *aiff) { free(aiff->chunk); }

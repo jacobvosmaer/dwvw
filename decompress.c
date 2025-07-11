@@ -27,6 +27,7 @@ int main(int argc, char **argv) {
   int32_t formsize;
   struct chunk *comm = 0, *ssnd = 0, ssndcompressed;
   struct stat st;
+  struct comm cm;
 
   if (argc != 3) {
     fputs("Usage: decompress INFILE OUTFILE\n", stderr);
@@ -45,6 +46,8 @@ int main(int argc, char **argv) {
   if (err = aiffload(&aiff, in, st.st_size), err)
     fail("load aiff: %s", err);
 
+  if (err = aiffcomm(&aiff, &cm), err)
+    fail("aiffcomm: %s", err);
   comm = aiffchunk(&aiff, 'COMM');
   if (comm->size < 18)
     fail("COMM too small: %d", comm->size);
