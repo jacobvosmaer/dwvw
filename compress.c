@@ -18,9 +18,9 @@ int main(int argc, char **argv) {
     failerrno("open %s", argv[1]);
   if (!fread(buf, sizeof(buf), 1, f))
     fail("read AIFF header: short read");
-  if (readsint(buf, 32) != 'FORM')
+  if (readint(buf, 32) != 'FORM')
     fail("missing FORM");
-  formsize = readsint(buf + 4, 32);
+  formsize = readint(buf + 4, 32);
   if (formsize < 4 || formsize > INT32_MAX - 8)
     fail("invalid FORM size: %d", formsize);
   in = malloc(formsize + 8);
@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
   memmove(in, buf, sizeof(buf));
   if (!fread(in + sizeof(buf), formsize, 1, f))
     fail("short read from %s", argv[1]);
-  filetype = readsint(in + 8, 32);
+  filetype = readint(in + 8, 32);
   if (filetype != 'AIFF' && filetype != 'AIFC')
     fail("invalid file type: %4.4s", in + 8);
 }

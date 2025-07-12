@@ -14,16 +14,16 @@ char *aiffload(struct aiff *aiff, unsigned char *data, int size) {
     err = "negative aiff size";
     goto out;
   }
-  if (readsint(data, 32) != 'FORM') {
+  if (readint(data, 32) != 'FORM') {
     err = "missing FORM";
     goto out;
   }
-  if (formtype = readsint(data + 8, 32),
+  if (formtype = readint(data + 8, 32),
       formtype != 'AIFC' && formtype != 'AIFF') {
     err = "unknown FORM type";
     goto out;
   }
-  formsize = readsint(data + 4, 32);
+  formsize = readint(data + 4, 32);
   if (formsize != size - 8) {
     err = "invalid FORM size";
     goto out;
@@ -34,8 +34,8 @@ char *aiffload(struct aiff *aiff, unsigned char *data, int size) {
         realloc(aiff->chunk, (++(aiff->nchunk)) * sizeof(*aiff->chunk));
     assert(aiff->chunk);
     ch = aiff->chunk + aiff->nchunk - 1;
-    ch->ID = readsint(p, 32);
-    ch->size = readsint(p + 4, 32);
+    ch->ID = readint(p, 32);
+    ch->size = readint(p + 4, 32);
     if (ch->size < 0) {
       err = "negative chunk size";
       goto out;
@@ -71,19 +71,19 @@ char *aiffcomm(struct aiff *aiff, struct comm *comm) {
   p = ch->data;
   comm->ckID = ch->ID;
   comm->ckDataSize = ch->size;
-  comm->numChannels = readsint(p, 16);
+  comm->numChannels = readint(p, 16);
   p += 2;
   if (comm->numChannels < 1)
     return "must have at least 1 channel";
   comm->numSampleFrames = readuint(p, 32);
   p += 4;
-  comm->sampleSize = readsint(p, 16);
+  comm->sampleSize = readint(p, 16);
   p += 2;
   if (comm->sampleSize < 1 || comm->sampleSize > 32)
     return "invalid sample size";
   memmove(comm->sampleRate, p, 10);
   p += 10;
-  comm->compressionType = readsint(p, 32);
+  comm->compressionType = readint(p, 32);
   p += 4;
   comm->compressionName = (char *)p;
   namesize = readuint(p, 8);

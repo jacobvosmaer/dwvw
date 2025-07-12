@@ -55,13 +55,13 @@ int main(int argc, char **argv) {
   memmove(commbuf + 18, "NONE\x0enot compressed\x00", 20);
   comm->data = commbuf;
   comm->size = sizeof(commbuf);
-  nchannels = readsint(comm->data, 16);
+  nchannels = readint(comm->data, 16);
   if (nchannels < 1)
     fail("invalid number of channels: %d", nchannels);
-  nsamples = readsint(comm->data + 2, 32);
+  nsamples = readint(comm->data + 2, 32);
   if (nsamples < 0)
     fail("invalid number of samples: %d", nsamples);
-  wordsize = readsint(comm->data + 6, 16);
+  wordsize = readint(comm->data + 6, 16);
   if (wordsize < 1 || wordsize > 32)
     fail("invalid wordsize: %d", wordsize);
   outwordsize = (wordsize + 7) & ~7;

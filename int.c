@@ -10,7 +10,7 @@ int64_t readuint(unsigned char *p, int width) {
   return x;
 }
 
-int64_t readsint(unsigned char *p, int width) {
+int64_t readint(unsigned char *p, int width) {
   int64_t x = readuint(p, width), sup = (int64_t)1 << (width - 1);
   if (x >= sup)
     x -= (int64_t)1 << width;
