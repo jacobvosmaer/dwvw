@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
   ssnd->size = 8 + nsamples * nchannels * outwordsize / 8;
 
   for (ch = aiff.chunk, formsize = 4; ch < aiff.chunk + aiff.nchunk; ch++)
-    formsize += ch->size;
+    formsize += ch->size + 8;
   if (ftruncate(outfd, formsize + 8))
     failerrno("ftruncate");
   if (out = mmap(0, formsize + 8, PROT_WRITE, MAP_SHARED, outfd, 0),
