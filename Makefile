@@ -10,4 +10,4 @@ fail.o: fail.h
 aiff.o: aiff.h int.o
 int.o: int.h
 decompress: decoder.o fail.o aiff.o int.o
-compress: fail.o
+compress: fail.o int.o
