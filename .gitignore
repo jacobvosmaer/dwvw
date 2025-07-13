@@ -7,3 +7,4 @@ decompress
 *.aiff
 *.C01
 compress
+*.img

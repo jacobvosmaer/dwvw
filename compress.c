@@ -76,8 +76,6 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
     delta = sample - lastsample;
     lastsample = sample;
     deltawidth = width(delta);
-    if (deltawidth > outwordsize)
-      deltawidth = outwordsize;
     dwm = deltawidth - lastdeltawidth;
     lastdeltawidth = deltawidth;
     if (dwm) {
@@ -95,9 +93,9 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
       putbit(&bw, 1);
     }
     if (deltawidth) {
-      word deltasign = delta < 0, deltarange = (1 << outwordsize) - 1;
+      word deltasign = delta < 0, deltarange = (1 << (outwordsize - 1)) - 1;
       delta = deltasign ? -delta : delta;
-      for (i = 1; i < deltawidth; i++)
+      for (i = 1; i < deltawidth && i < outwordsize - 1; i++)
         putbit(&bw, (delta & (1 << (outwordsize - 1 - i))) > 0);
       putbit(&bw, deltasign);
       if (deltasign && delta >= deltarange)
@@ -108,7 +106,7 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
 }
 
 int main(void) {
-  unsigned char *in, *inend, *comm, *ssnd, *out, *p, *q;
+  unsigned char *in, *inend, *comm, *out, *p, *q;
   int32_t filetype, insize, commsize;
   in = loadform(stdin, &insize);
   if (insize > INT32_MAX / 2)
@@ -123,9 +121,7 @@ int main(void) {
   if (commsize = readint(comm + 4, 32), commsize < 22)
     fail("COMM chunk too small: %d", commsize);
   if (filetype == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
-    fail("unsupported input audio format: %4.4s", comm + 8 + 18);
-  if (ssnd = finduniquechunk('SSND', in + 12, inend), ssnd == inend)
-    fail("cannot find SSND chunk");
+    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
   if (out = malloc(2 * insize), !out)
     fail("malloc output failed");
   p = in + 12;
@@ -141,6 +137,26 @@ int main(void) {
       putbe(18 + 36, 32, q + 4);
       q += 18 + 36 + 8;
     } else if (ID == 'SSND') {
+      unsigned char *ssnd = q;
+      int16_t nchannels = readint(comm + 8, 16);
+      uint32_t nsamples = readuint(comm + 10, 32);
+      int16_t inwordsize = readint(comm + 14, 16);
+      int i;
+      if (nchannels < 1)
+        fail("invalid number of channels: %d", nchannels);
+      if (inwordsize < 1 || inwordsize > 32)
+        fail("invalid input word size: %d", inwordsize);
+      q += 8;
+      for (i = 0; i < nchannels; i++) {
+        q += encodedwvw(p + i * inwordsize / 8, nsamples, inwordsize, nchannels,
+                        q, 12);
+        if ((uintptr_t)q & 1)
+          q++;
+      }
+      putbe('SSND', 32, ssnd);
+      putbe(q - ssnd - 8, 32, ssnd + 4);
+      putbe(0, 32, ssnd + 8);
+      putbe(0, 32, ssnd + 12);
     } else {
       memmove(q, p, size + 8);
       q += size + 8;
