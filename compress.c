@@ -5,8 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-unsigned char *findchunk(int32_t ID, unsigned char *start, unsigned char *end) {
-  unsigned char *p = start;
+uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
+  uint8_t *p = start;
   while (p < end - 8) {
     int32_t size = readint(p + 4, 32);
     if (size < 0 || size > end - (p + 8))
@@ -18,9 +18,8 @@ unsigned char *findchunk(int32_t ID, unsigned char *start, unsigned char *end) {
   return end;
 }
 
-unsigned char *finduniquechunk(int32_t ID, unsigned char *start,
-                               unsigned char *end) {
-  unsigned char *chunk = findchunk(ID, start, end), *chunk2;
+uint8_t *finduniquechunk(int32_t ID, uint8_t *start, uint8_t *end) {
+  uint8_t *chunk = findchunk(ID, start, end), *chunk2;
   if (chunk < end)
     if (chunk2 = findchunk(ID, chunk + 8 + readint(chunk + 4, 32), end),
         chunk2 < end)
@@ -28,8 +27,8 @@ unsigned char *finduniquechunk(int32_t ID, unsigned char *start,
   return chunk;
 }
 
-unsigned char *loadform(FILE *f, int32_t *size) {
-  unsigned char buf[8], *p;
+uint8_t *loadform(FILE *f, int32_t *size) {
+  uint8_t buf[8], *p;
   int32_t formsize;
   if (!fread(buf, sizeof(buf), 1, f))
     fail("read AIFF header: short read");
@@ -48,7 +47,7 @@ unsigned char *loadform(FILE *f, int32_t *size) {
 }
 
 struct bitwriter {
-  unsigned char *p;
+  uint8_t *p;
   int n;
 };
 
@@ -60,8 +59,8 @@ void putbit(struct bitwriter *bw, int bit) {
   bw->n++;
 }
 
-int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
-               unsigned char *output, word outwordsize) {
+int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
+               uint8_t *output, word outwordsize) {
   int j;
   word lastsample = 0, lastdeltawidth = 0,
        deltarange = bit(outwordsize - 1) - 1;
@@ -111,7 +110,7 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
 }
 
 int main(int argc, char **argv) {
-  unsigned char *in, *inend, *comm, *out, *p, *q;
+  uint8_t *in, *inend, *comm, *out, *p, *q;
   int32_t filetype, insize, commsize;
   word outwordsize;
   if (argc != 2) {
@@ -151,7 +150,7 @@ int main(int argc, char **argv) {
       putbe(18 + 36, 32, q + 4);
       q += 18 + 36 + 8;
     } else if (ID == 'SSND') {
-      unsigned char *ssnd = q;
+      uint8_t *ssnd = q;
       int16_t nchannels = readint(comm + 8, 16);
       uint32_t nsamples = readuint(comm + 10, 32);
       int16_t inwordsize = readint(comm + 14, 16);
