@@ -30,7 +30,7 @@ void decoderinit(struct decoder *d, word wordsize, unsigned char *data,
   d->wordsize = wordsize;
 }
 
-int Decodernext(struct decoder *d, word *sample) {
+void Decodernext(struct decoder *d, word *sample) {
   word dwm = 0; /* "delta width modifier" */
   /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and a
    * sign bit. */
@@ -69,14 +69,11 @@ int Decodernext(struct decoder *d, word *sample) {
       d->sample += bit(d->wordsize);
   }
   *sample = d->sample;
-  return 0;
 }
 
 int decodernext(struct decoder *d, word *sample) {
-  int err = Decodernext(d, sample);
-  if (overflow(&d->br))
-    err--;
-  return err;
+  Decodernext(d, sample);
+  return overflow(&d->br) ? -2 : 0;
 }
 int decoderpos(struct decoder *d) { return d->br.bit / 8 + 1; }
 
