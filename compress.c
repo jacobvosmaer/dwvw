@@ -183,5 +183,6 @@ int main(int argc, char **argv) {
   putbe('FORM', 32, out);
   putbe(q - out - 8, 32, out + 4);
   putbe('AIFC', 32, out + 8);
-  fwrite(out, q - out, 1, stdout);
+  if (!fwrite(out, q - out, 1, stdout))
+    fail("fwrite failed");
 }
