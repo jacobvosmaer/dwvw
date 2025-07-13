@@ -103,11 +103,15 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
-const word outwordsize = 12;
-
-int main(void) {
+int main(int argc, char **argv) {
   unsigned char *in, *inend, *comm, *out, *p, *q;
   int32_t filetype, insize, commsize;
+  word outwordsize;
+  if (argc != 2) {
+    fputs("Usage: compress OUTPUT_WORD_SIZE\n", stderr);
+    exit(1);
+  }
+  outwordsize = atoi(argv[1]);
   in = loadform(stdin, &insize);
   if (insize > INT32_MAX / 2)
     fail("input file too large");
