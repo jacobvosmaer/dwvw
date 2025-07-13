@@ -63,7 +63,7 @@ void putbit(struct bitwriter *bw, int bit) {
 int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
                unsigned char *output, word outwordsize) {
   word lastsample = 0, lastdeltawidth = 0,
-       deltarange = (1 << (outwordsize - 1)) - 1;
+       deltarange = bit(outwordsize - 1) - 1;
   struct bitwriter bw = {0};
   bw.p = output;
   while (nsamples--) {
@@ -75,10 +75,10 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
     else
       sample >>= inwordsize - outwordsize; /* TODO dither? */
     delta = sample - lastsample;
-    if (delta >= (1 << (outwordsize - 1)))
-      delta -= 1 << outwordsize;
-    else if (delta < -(1 << (outwordsize - 1)))
-      delta += 1 << outwordsize;
+    if (delta >= bit(outwordsize - 1))
+      delta -= bit(outwordsize);
+    else if (delta < -bit(outwordsize - 1))
+      delta += bit(outwordsize);
     lastsample = sample;
     deltawidth = width(delta);
     dwm = deltawidth - lastdeltawidth;
@@ -98,7 +98,7 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
     deltasign = delta < 0;
     delta = deltasign ? -delta : delta;
     for (i = 1; i < deltawidth; i++)
-      putbit(&bw, (delta & (1 << (deltawidth - 1 - i))) > 0);
+      putbit(&bw, (delta & bit(deltawidth - 1 - i)) > 0);
     if (deltawidth)
       putbit(&bw, deltasign);
     if (deltasign && delta >= deltarange)
