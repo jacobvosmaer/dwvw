@@ -85,9 +85,10 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
         dwm += outwordsize;
       dwmsign = dwm < 0;
       dwm = dwmsign ? -dwm : dwm;
-      while (dwm--)
+      for (i = 0; i < dwm; i++)
         putbit(&bw, 0);
-      putbit(&bw, 1);
+      if (dwm < outwordsize / 2)
+        putbit(&bw, 1);
       putbit(&bw, dwmsign);
     } else {
       putbit(&bw, 1);
@@ -105,10 +106,9 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
-const word outwordsize = 16;
+const word outwordsize = 12;
 
-    int
-    main(void) {
+int main(void) {
   unsigned char *in, *inend, *comm, *out, *p, *q;
   int32_t filetype, insize, commsize;
   in = loadform(stdin, &insize);
