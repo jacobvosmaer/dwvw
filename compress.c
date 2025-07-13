@@ -119,7 +119,8 @@ int main(void) {
     fail("zero chunk ID found");
   if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
     fail("cannot find COMM chunk");
-  if (commsize = readint(comm + 4, 32), commsize < 22)
+  if (commsize = readint(comm + 4, 32),
+      commsize < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", commsize);
   if (filetype == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
     fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
