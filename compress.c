@@ -62,12 +62,13 @@ void putbit(struct bitwriter *bw, int bit) {
 
 int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
                unsigned char *output, word outwordsize) {
-  word lastsample = 0, lastdeltawidth = 0;
+  word lastsample = 0, lastdeltawidth = 0,
+       deltarange = (1 << (outwordsize - 1)) - 1;
   struct bitwriter bw = {0};
   bw.p = output;
   while (nsamples--) {
-    int dwm, dwmsign, i;
-    word delta, deltawidth, sample = readint(input, inwordsize);
+    int dwm, dwmsign, deltawidth, deltasign, i;
+    word delta, sample = readint(input, inwordsize);
     input += stride * inwordsize / 8;
     if (inwordsize < outwordsize)
       sample <<= outwordsize - inwordsize;
@@ -78,30 +79,26 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
     deltawidth = width(delta);
     dwm = deltawidth - lastdeltawidth;
     lastdeltawidth = deltawidth;
-    if (dwm) {
-      if (dwm > outwordsize / 2)
-        dwm -= outwordsize;
-      else if (dwm < -outwordsize / 2)
-        dwm += outwordsize;
-      dwmsign = dwm < 0;
-      dwm = dwmsign ? -dwm : dwm;
-      for (i = 0; i < dwm; i++)
-        putbit(&bw, 0);
-      if (dwm < outwordsize / 2)
-        putbit(&bw, 1);
-      putbit(&bw, dwmsign);
-    } else {
+    if (dwm > outwordsize / 2)
+      dwm -= outwordsize;
+    else if (dwm < -outwordsize / 2)
+      dwm += outwordsize;
+    dwmsign = dwm < 0;
+    dwm = dwmsign ? -dwm : dwm;
+    for (i = 0; i < dwm; i++)
+      putbit(&bw, 0);
+    if (dwm < outwordsize / 2)
       putbit(&bw, 1);
-    }
-    if (deltawidth) {
-      word deltasign = delta < 0, deltarange = (1 << (outwordsize - 1)) - 1;
-      delta = deltasign ? -delta : delta;
-      for (i = 1; i < deltawidth && i < outwordsize - 1; i++)
-        putbit(&bw, (delta & (1 << (deltawidth - 1 - i))) > 0);
+    if (dwm)
+      putbit(&bw, dwmsign);
+    deltasign = delta < 0;
+    delta = deltasign ? -delta : delta;
+    for (i = 1; i < deltawidth && i < outwordsize - 1; i++)
+      putbit(&bw, (delta & (1 << (deltawidth - 1 - i))) > 0);
+    if (deltawidth)
       putbit(&bw, deltasign);
-      if (deltasign && delta >= deltarange)
-        putbit(&bw, delta > deltarange);
-    }
+    if (deltasign && delta >= deltarange)
+      putbit(&bw, delta > deltarange);
   }
   return (bw.n + 7) / 8;
 }
