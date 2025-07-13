@@ -47,6 +47,66 @@ unsigned char *loadform(FILE *f, int32_t *size) {
   return p;
 }
 
+struct bitwriter {
+  unsigned char *p;
+  int n;
+};
+
+void putbit(struct bitwriter *bw, int bit) {
+  int byte = bw->n / 8, shift = 7 - bw->n % 8;
+  if (shift == 7)
+    bw->p[byte] = 0;
+  bw->p[byte] |= bit << shift;
+  bw->n++;
+}
+
+int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
+               unsigned char *output, word outwordsize) {
+  word lastsample = 0, lastdeltawidth = 0;
+  struct bitwriter bw = {0};
+  bw.p = output;
+  while (nsamples--) {
+    int dwm, dwmsign, i;
+    word delta, deltawidth, sample = readint(input, inwordsize);
+    input += stride * inwordsize / 8;
+    if (inwordsize < outwordsize)
+      sample <<= 1 << (outwordsize - inwordsize);
+    else
+      sample >>= 1 << (inwordsize - outwordsize); /* TODO dither? */
+    delta = sample - lastsample;
+    lastsample = sample;
+    deltawidth = width(delta);
+    if (deltawidth > outwordsize)
+      deltawidth = outwordsize;
+    dwm = deltawidth - lastdeltawidth;
+    lastdeltawidth = deltawidth;
+    if (dwm) {
+      if (dwm > outwordsize / 2)
+        dwm -= outwordsize;
+      else if (dwm < -outwordsize / 2)
+        dwm += outwordsize;
+      dwmsign = dwm < 0;
+      dwm = dwmsign ? -dwm : dwm;
+      while (dwm--)
+        putbit(&bw, 0);
+      putbit(&bw, 1);
+      putbit(&bw, dwmsign);
+    } else {
+      putbit(&bw, 1);
+    }
+    if (deltawidth) {
+      word deltasign = delta < 0, deltarange = (1 << outwordsize) - 1;
+      delta = deltasign ? -delta : delta;
+      for (i = 1; i < deltawidth; i++)
+        putbit(&bw, (delta & (1 << (outwordsize - 1 - i))) > 0);
+      putbit(&bw, deltasign);
+      if (deltasign && delta >= deltarange)
+        putbit(&bw, delta > deltarange);
+    }
+  }
+  return (bw.n + 7) / 8;
+}
+
 int main(void) {
   unsigned char *in, *inend, *comm, *ssnd, *out, *p, *q;
   int32_t filetype, insize, commsize;

@@ -10,4 +10,6 @@ int64_t readuint(unsigned char *p, int width);
 int64_t readint(unsigned char *p, int width);
 int putbe(word x, word wordsize, unsigned char *p);
 
+#define width(x) (64 - __builtin_clzg((uint64_t)(x > 0 ? x : -x)))
+
 #endif
