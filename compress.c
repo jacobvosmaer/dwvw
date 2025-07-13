@@ -70,9 +70,9 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
     word delta, deltawidth, sample = readint(input, inwordsize);
     input += stride * inwordsize / 8;
     if (inwordsize < outwordsize)
-      sample <<= 1 << (outwordsize - inwordsize);
+      sample <<= outwordsize - inwordsize;
     else
-      sample >>= 1 << (inwordsize - outwordsize); /* TODO dither? */
+      sample >>= inwordsize - outwordsize; /* TODO dither? */
     delta = sample - lastsample;
     lastsample = sample;
     deltawidth = width(delta);
@@ -96,7 +96,7 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
       word deltasign = delta < 0, deltarange = (1 << (outwordsize - 1)) - 1;
       delta = deltasign ? -delta : delta;
       for (i = 1; i < deltawidth && i < outwordsize - 1; i++)
-        putbit(&bw, (delta & (1 << (outwordsize - 1 - i))) > 0);
+        putbit(&bw, (delta & (1 << (deltawidth - 1 - i))) > 0);
       putbit(&bw, deltasign);
       if (deltasign && delta >= deltarange)
         putbit(&bw, delta > deltarange);
@@ -105,7 +105,10 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
-int main(void) {
+const word outwordsize = 16;
+
+    int
+    main(void) {
   unsigned char *in, *inend, *comm, *out, *p, *q;
   int32_t filetype, insize, commsize;
   in = loadform(stdin, &insize);
@@ -131,6 +134,7 @@ int main(void) {
     if (ID == 'COMM') {
       int compressoff = 18 + 8;
       memmove(q, p, compressoff);
+      putbe(outwordsize, 16, q + 14);
       memmove(q + compressoff, "DWVWxDelta With Variable Word Width\x00", 36);
       q[compressoff + 4] =
           0x1f; /* not allowed to put \x1f in string literal?? */
@@ -146,12 +150,11 @@ int main(void) {
         fail("invalid number of channels: %d", nchannels);
       if (inwordsize < 1 || inwordsize > 32)
         fail("invalid input word size: %d", inwordsize);
-      q += 8;
+      q += 16;
       for (i = 0; i < nchannels; i++) {
-        q += encodedwvw(p + i * inwordsize / 8, nsamples, inwordsize, nchannels,
-                        q, 12);
-        if ((uintptr_t)q & 1)
-          q++;
+        q += encodedwvw(p + 16 + i * inwordsize / 8, nsamples, inwordsize,
+                        nchannels, q, outwordsize);
+        q += (q - ssnd) & 1;
       }
       putbe('SSND', 32, ssnd);
       putbe(q - ssnd - 8, 32, ssnd + 4);
