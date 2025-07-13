@@ -62,11 +62,15 @@ void Decodernext(struct decoder *d, word *sample) {
      * is 1111111 1 1. */
     if (delta == 1 - bit(d->wordsize - 1))
       delta -= nextbit(&d->br);
+    if (DEBUG > 1)
+      fprintf(stderr, "delta=%lld\n", delta);
     d->sample += delta;
     if (d->sample >= bit(d->wordsize - 1))
       d->sample -= bit(d->wordsize);
     else if (d->sample < -bit(d->wordsize - 1))
       d->sample += bit(d->wordsize);
+  } else if (DEBUG > 1) {
+    fputs("delta=0\n", stderr);
   }
   *sample = d->sample;
 }

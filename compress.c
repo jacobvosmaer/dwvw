@@ -62,11 +62,12 @@ void putbit(struct bitwriter *bw, int bit) {
 
 int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
                unsigned char *output, word outwordsize) {
+  int j;
   word lastsample = 0, lastdeltawidth = 0,
        deltarange = bit(outwordsize - 1) - 1;
   struct bitwriter bw = {0};
   bw.p = output;
-  while (nsamples--) {
+  for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
     word delta, sample = readint(input, inwordsize);
     input += stride * inwordsize / 8;
@@ -79,6 +80,8 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
       delta -= bit(outwordsize);
     else if (delta < -bit(outwordsize - 1))
       delta += bit(outwordsize);
+    if (DEBUG > 1)
+      fprintf(stderr, "delta=%lld\n", delta);
     lastsample = sample;
     deltawidth = width(delta);
     dwm = deltawidth - lastdeltawidth;

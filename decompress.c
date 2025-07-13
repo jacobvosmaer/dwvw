@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
       word sample;
       int err;
       if (err = decodernext(&d, &sample), err)
-        fail("decoder: %d", err);
+        fail("sample %d: decoder: %d", j, err);
       p += putbe(sample << (outwordsize - wordsize), outwordsize, p);
       p += (nchannels - 1) * outwordsize / 8;
     }
