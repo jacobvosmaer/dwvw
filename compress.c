@@ -115,7 +115,8 @@ int main(void) {
   filetype = readint(in + 8, 32);
   if (filetype != 'AIFF' && filetype != 'AIFC')
     fail("invalid file type: %4.4s", in + 8);
-  findchunk(0, in + 12, inend); /* validate chunk sizes */
+  if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
+    fail("zero chunk ID found");
   if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
     fail("cannot find COMM chunk");
   if (commsize = readint(comm + 4, 32), commsize < 22)
