@@ -42,8 +42,9 @@ int Decodernext(struct decoder *d, word *sample) {
     d->deltawidth += dwm;
     /* Deltawidth wraps around. This allows the encoding to minimize the
      * absolute value of dwm, which matters because dwm is encoded in unary. */
-    d->deltawidth -= d->wordsize;
-    while (d->deltawidth < 0)
+    if (d->deltawidth > d->wordsize)
+      d->deltawidth -= d->wordsize;
+    else if (d->deltawidth < 0)
       d->deltawidth += d->wordsize;
   }
   d->dwstats[d->deltawidth]++;
@@ -62,9 +63,10 @@ int Decodernext(struct decoder *d, word *sample) {
     if (delta == 1 - bit(d->wordsize - 1))
       delta -= nextbit(&d->br);
     d->sample += delta;
-    if (!(d->sample >= -bit(d->wordsize - 1) &&
-          d->sample < bit(d->wordsize - 1)))
-      return -1;
+    if (d->sample >= bit(d->wordsize - 1))
+      d->sample -= bit(d->wordsize);
+    else if (d->sample < -bit(d->wordsize - 1))
+      d->sample += bit(d->wordsize);
   }
   *sample = d->sample;
   return 0;

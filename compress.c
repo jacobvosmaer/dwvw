@@ -75,6 +75,10 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
     else
       sample >>= inwordsize - outwordsize; /* TODO dither? */
     delta = sample - lastsample;
+    if (delta >= (1 << (outwordsize - 1)))
+      delta -= 1 << outwordsize;
+    else if (delta < -(1 << (outwordsize - 1)))
+      delta += 1 << outwordsize;
     lastsample = sample;
     deltawidth = width(delta);
     dwm = deltawidth - lastdeltawidth;
@@ -93,7 +97,7 @@ int encodedwvw(unsigned char *input, int nsamples, word inwordsize, int stride,
       putbit(&bw, dwmsign);
     deltasign = delta < 0;
     delta = deltasign ? -delta : delta;
-    for (i = 1; i < deltawidth && i < outwordsize - 1; i++)
+    for (i = 1; i < deltawidth; i++)
       putbit(&bw, (delta & (1 << (deltawidth - 1 - i))) > 0);
     if (deltawidth)
       putbit(&bw, deltasign);
