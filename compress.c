@@ -109,35 +109,9 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
-int main(int argc, char **argv) {
-  uint8_t *in, *inend, *comm, *out, *p, *q;
-  int32_t filetype, insize, commsize;
-  word outwordsize;
-  if (argc != 2) {
-    fputs("Usage: compress OUTPUT_WORD_SIZE\n", stderr);
-    exit(1);
-  }
-  outwordsize = atoi(argv[1]);
-  in = loadform(stdin, &insize);
-  if (insize > INT32_MAX / 2)
-    fail("input file too large");
-  inend = in + insize;
-  filetype = readint(in + 8, 32);
-  if (filetype != 'AIFF' && filetype != 'AIFC')
-    fail("invalid file type: %4.4s", in + 8);
-  if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
-    fail("zero chunk ID found");
-  if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
-    fail("cannot find COMM chunk");
-  if (commsize = readint(comm + 4, 32),
-      commsize < (filetype == 'AIFC' ? 22 : 18))
-    fail("COMM chunk too small: %d", commsize);
-  if (filetype == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
-    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
-  if (out = malloc(2 * insize), !out)
-    fail("malloc output failed");
-  p = in + 12;
-  q = out + 12;
+uint8_t *compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
+                  word outwordsize) {
+  uint8_t *p = in + 12, *q = out + 12;
   while (p < inend - 8) {
     int32_t ID = readint(p, 32), size = readint(p + 4, 32);
     if (ID == 'COMM') {
@@ -175,6 +149,37 @@ int main(int argc, char **argv) {
     }
     p += size + 8;
   }
+  return q;
+}
+
+int main(int argc, char **argv) {
+  uint8_t *in, *inend, *comm, *out, *q;
+  int32_t filetype, insize, commsize;
+  word outwordsize;
+  if (argc != 2) {
+    fputs("Usage: compress OUTPUT_WORD_SIZE\n", stderr);
+    exit(1);
+  }
+  outwordsize = atoi(argv[1]);
+  in = loadform(stdin, &insize);
+  inend = in + insize;
+  filetype = readint(in + 8, 32);
+  if (filetype != 'AIFF' && filetype != 'AIFC')
+    fail("invalid file type: %4.4s", in + 8);
+  if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
+    fail("zero chunk ID found");
+  if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
+    fail("cannot find COMM chunk");
+  if (commsize = readint(comm + 4, 32),
+      commsize < (filetype == 'AIFC' ? 22 : 18))
+    fail("COMM chunk too small: %d", commsize);
+  if (filetype == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
+    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
+  if (insize < 0 || insize > INT32_MAX / 2)
+    fail("bad input file size: %d", insize);
+  if (out = malloc(2 * insize), !out)
+    fail("malloc output failed");
+  q = compress(in, inend, comm, out, outwordsize);
   putbe('FORM', 32, out);
   putbe(q - out - 8, 32, out + 4);
   putbe('AIFC', 32, out + 8);
