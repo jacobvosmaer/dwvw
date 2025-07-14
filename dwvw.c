@@ -186,6 +186,116 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
+struct bitreader {
+  unsigned char *data;
+  int bit, size;
+};
+
+struct decoder {
+  struct bitreader br;
+  word deltawidth, sample, wordsize;
+  int dwmstats[32 / 2 + 1];
+  int dwstats[32];
+};
+
+word nextbit(struct bitreader *br) {
+  word b = 0;
+  if (br->bit / 8 < br->size) {
+    b = (br->data[br->bit / 8] & bit(7 - (br->bit % 8))) > 0;
+    br->bit++;
+  }
+  return b;
+}
+
+static int overflow(struct bitreader *br) { return br->bit / 8 >= br->size; }
+
+void decoderinit(struct decoder *d, word wordsize, unsigned char *data,
+                 int size) {
+  struct decoder empty = {0};
+  *d = empty;
+  d->br.data = data;
+  d->br.size = size;
+  d->wordsize = wordsize;
+}
+
+void Decodernext(struct decoder *d, word *sample) {
+  word dwm = 0; /* "delta width modifier" */
+  /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and a
+   * sign bit. */
+  while (dwm < d->wordsize / 2 && !nextbit(&d->br))
+    dwm++;
+  d->dwmstats[dwm]++;
+  if (dwm) { /* deltawidth is changing */
+    dwm *= nextbit(&d->br) ? -1 : 1;
+    d->deltawidth += dwm;
+    /* Deltawidth wraps around. This allows the encoding to minimize the
+     * absolute value of dwm, which matters because dwm is encoded in unary. */
+    if (d->deltawidth >= d->wordsize)
+      d->deltawidth -= d->wordsize;
+    else if (d->deltawidth < 0)
+      d->deltawidth += d->wordsize;
+  }
+  d->dwstats[d->deltawidth]++;
+  if (d->deltawidth) { /* non-zero delta: sample is changing */
+    word i, delta;
+    /* Start iteration from 1 because the leading 1 of delta is implied */
+    for (i = 1, delta = 1; i < d->deltawidth; i++)
+      delta = (delta << 1) | nextbit(&d->br);
+    delta *= nextbit(&d->br) ? -1 : 1;
+    /* The lowest possible value for delta at this point is -(1 << (wordsize
+     * -1)). So if wordsize is 8, the lowest possible value is -127. In 2's
+     * complement we must also be able to represent -128. To account for this
+     * DWVW adds an extra bit. To save space this bit is only present when
+     * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and -128
+     * is 1111111 1 1. */
+    if (delta == 1 - bit(d->wordsize - 1))
+      delta -= nextbit(&d->br);
+    if (DEBUG > 1)
+      fprintf(stderr, "delta=%lld\n", delta);
+    d->sample += delta;
+    if (d->sample >= bit(d->wordsize - 1))
+      d->sample -= bit(d->wordsize);
+    else if (d->sample < -bit(d->wordsize - 1))
+      d->sample += bit(d->wordsize);
+  } else if (DEBUG > 1) {
+    fputs("delta=0\n", stderr);
+  }
+  *sample = d->sample;
+}
+
+int decodernext(struct decoder *d, word *sample) {
+  Decodernext(d, sample);
+  return overflow(&d->br) ? -2 : 0;
+}
+int decoderpos(struct decoder *d) { return d->br.bit / 8 + 1; }
+
+void decoderprintstats(struct decoder *d, FILE *f) {
+  int i;
+  fputs("dwm stats:\n", f);
+  for (i = 0; i < d->wordsize / 2 + 1; i++)
+    fprintf(f, "%2d %d\n", i, d->dwmstats[i]);
+  fputs("deltawidth stats:\n", f);
+  for (i = 0; i < d->wordsize; i++)
+    fprintf(f, "%2d %d\n", i, d->dwstats[i]);
+}
+
+int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
+               int stride, uint8_t *output, word outwordsize) {
+  struct decoder d;
+  uint8_t *p = output;
+  int j;
+  decoderinit(&d, inwordsize, input, inend - input);
+  for (j = 0; j < nsamples; j++) {
+    word sample;
+    int err;
+    if (err = decodernext(&d, &sample), err)
+      fail("sample %d: decoder: %d", j, err);
+    p += putbe(sample << (outwordsize - inwordsize), outwordsize, p);
+    p += (stride - 1) * outwordsize / 8;
+  }
+  return decoderpos(&d);
+}
+
 void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
               word outwordsize) {
   uint8_t *p, *q, *out;
@@ -242,11 +352,67 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
   writeform(f, out, q);
 }
 
+void decompress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f) {
+  int16_t inwordsize = readint(comm + 14, 16),
+          outwordsize = 8 * ((inwordsize + 7) / 8),
+          nchannels = readint(comm + 8, 16);
+  uint32_t nsamples = readuint(comm + 10, 32);
+  uint8_t *p, *q, *out;
+  int outsize;
+  fprintf(stderr, "inwordsize=%d outwordsize=%d\n", inwordsize, outwordsize);
+  if (inwordsize < 1 || inwordsize > 32)
+    fail("invalid input word size: %d", inwordsize);
+  if (nchannels < 1)
+    fail("invalid number of channels: %d", nchannels);
+  if (readint(in + 8, 32) != 'AIFC' || readint(comm + 4, 32) < 24 ||
+      readint(comm + 8 + 18, 32) != 'DWVW')
+    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
+
+  outsize = inend - in + nchannels * nsamples * (outwordsize / 8);
+  if (out = malloc(outsize), !out)
+    fail("malloc out failed");
+
+  p = in + 12;
+  q = out + 12;
+  while (p < inend - 8) {
+    int32_t ID = readint(p, 32), size = readint(p + 4, 32);
+    int i;
+    if (ID == 'COMM') {
+      int compressoff = 18 + 8;
+      memmove(q, p, compressoff);
+      putbe(outwordsize, 16, q + 14);
+      memmove(q + compressoff, "NONE\x0enot compressed\x00", 20);
+      putbe(18 + 20, 32, q + 4);
+      q += 18 + 20 + 8;
+    } else if (ID == 'SSND') {
+      uint8_t *ssnd = q, *pp = p + 16;
+      q += 16;
+      for (i = 0; i < nchannels; i++) {
+        pp += decodedwvw(pp, p + 8 + readint(p + 4, 32), nsamples, inwordsize,
+                         nchannels, q + i * (outwordsize / 8), outwordsize);
+        if ((pp - p) & 1)
+          pp++;
+      }
+      q += nchannels * nsamples * (outwordsize / 8);
+      putbe('SSND', 32, ssnd);
+      putbe(q - ssnd - 8, 32, ssnd + 4);
+      putbe(0, 32, ssnd + 8);
+      putbe(0, 32, ssnd + 12);
+    } else {
+      memmove(q, p, size + 8);
+      q += size + 8;
+    }
+    p += size + 8;
+  }
+  writeform(f, out, q);
+}
+
 int main(int argc, char **argv) {
   uint8_t *in, *inend, *comm;
   int32_t filetype, insize, commsize;
-  if (argc != 2 || strcmp(argv[1], "compress")) {
-    fputs("Usage: dwvw compress\n", stderr);
+  if (argc != 2 ||
+      (strcmp(argv[1], "compress") && strcmp(argv[1], "decompress"))) {
+    fputs("Usage: dwvw compress|decompress\n", stderr);
     exit(1);
   }
   in = loadform(stdin, &insize);
@@ -261,5 +427,8 @@ int main(int argc, char **argv) {
   if (commsize = readint(comm + 4, 32),
       commsize < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", commsize);
-  compress(in, inend, comm, stdout, COMPRESSED_WORD_SIZE);
+  if (!strcmp(argv[1], "compress"))
+    compress(in, inend, comm, stdout, COMPRESSED_WORD_SIZE);
+  else
+    decompress(in, inend, comm, stdout);
 }
