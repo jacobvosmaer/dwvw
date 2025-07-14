@@ -192,7 +192,7 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
     delta = deltasign ? -delta : delta;
     for (deltawidth = 0; (1 << deltawidth) <= delta; deltawidth++)
       ;
-    dwm = deltawidth - lastdeltawidth;
+    dwm = deltawidth - lastdeltawidth; /* delta width modifier */
     lastdeltawidth = deltawidth;
     if (dwm > outwordsize / 2)
       dwm -= outwordsize;
@@ -200,16 +200,17 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
       dwm += outwordsize;
     dwmsign = dwm < 0;
     dwm = dwmsign ? -dwm : dwm;
-    for (i = 0; i < dwm; i++)
+    for (i = 0; i < dwm; i++) /* Dwm in unary */
       putbit(&bw, 0);
-    if (dwm < outwordsize / 2)
+    if (dwm < outwordsize / 2) /* Dwm stop bit */
       putbit(&bw, 1);
     if (dwm)
       putbit(&bw, dwmsign);
-    for (i = 1; i < deltawidth; i++)
+    for (i = 1; i < deltawidth; i++) /* Delta in binary */
       putbit(&bw, (delta & bit(deltawidth - 1 - i)) > 0);
-    if (deltawidth)
+    if (deltawidth) /* Omit sign bit if delta is 0 */
       putbit(&bw, deltasign);
+    /* Extra bit for otherwise unrepresentable value -(1 << (outwordsize -1)) */
     if (deltasign && delta >= deltarange)
       putbit(&bw, delta > deltarange);
   }
@@ -240,16 +241,12 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
     word dwm = 0; /* "delta width modifier" */
-    /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and
-     * a sign bit. */
+    /* Dwm is encoded in unary as a string of zeroes */
     while (dwm < inwordsize / 2 && !getbit(&br))
       dwm++;
     if (dwm) { /* deltawidth is changing */
-      dwm *= getbit(&br) ? -1 : 1;
+      dwm = getbit(&br) ? -dwm : dwm;
       deltawidth += dwm;
-      /* Deltawidth wraps around. This allows the encoding to minimize the
-       * absolute value of dwm, which matters because dwm is encoded in unary.
-       */
       if (deltawidth >= inwordsize)
         deltawidth -= inwordsize;
       else if (deltawidth < 0)
@@ -260,7 +257,7 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
       /* Start iteration from 1 because the leading 1 of delta is implied */
       for (i = 1, delta = 1; i < deltawidth; i++)
         delta = (delta << 1) | getbit(&br);
-      delta *= getbit(&br) ? -1 : 1;
+      delta = getbit(&br) ? -delta : delta;
       /* The lowest possible value for delta at this point is -(1 << (inwordsize
        * -1)). So if inwordsize is 8, the lowest possible value is -127. In 2's
        * complement we must also be able to represent -128. To account for this
