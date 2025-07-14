@@ -348,12 +348,12 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       uint8_t *ssnd = q, *dwvwstart = p + 16, *dwvwend = p + 8 + size;
       q += 16;
       for (i = 0; i < comm.nchannels; i++) {
-        dwvwstart +=
-            decodedwvw(dwvwstart, dwvwend, comm.nsamples, comm.wordsize,
-                       comm.nchannels, q + i * (outwordsize / 8), outwordsize);
+        dwvwstart += decodedwvw(dwvwstart, dwvwend, comm.nsamples,
+                                comm.wordsize, comm.nchannels,
+                                ssnd + 16 + i * (outwordsize / 8), outwordsize);
         dwvwstart += (dwvwstart - p) & 1;
+        q += comm.nsamples * (outwordsize / 8);
       }
-      q += comm.nchannels * comm.nsamples * (outwordsize / 8);
       putint('SSND', 32, ssnd);
       putint(q - ssnd - 8, 32, ssnd + 4);
       putint(0, 32, ssnd + 8);
