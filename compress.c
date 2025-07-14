@@ -126,6 +126,8 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
 void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
               word outwordsize) {
   uint8_t *p = in + 12, *q = out + 12;
+  if (readint(in + 8, 32) == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
+    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
   while (p < inend - 8) {
     int32_t ID = readint(p, 32), size = readint(p + 4, 32);
     if (ID == 'COMM') {
@@ -181,8 +183,6 @@ int main(int argc, char **argv) {
   if (commsize = readint(comm + 4, 32),
       commsize < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", commsize);
-  if (filetype == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
-    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
   if (insize < 0 || insize > INT32_MAX / 2)
     fail("bad input file size: %d", insize);
   if (out = malloc(2 * insize), !out)
