@@ -218,98 +218,71 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
 
 struct bitreader {
   unsigned char *data;
-  int bit, size;
-};
-
-struct decoder {
-  struct bitreader br;
-  word deltawidth, sample, wordsize;
+  int n, size;
 };
 
 word nextbit(struct bitreader *br) {
   word b = 0;
-  if (br->bit / 8 < br->size) {
-    b = (br->data[br->bit / 8] & bit(7 - (br->bit % 8))) > 0;
-    br->bit++;
+  if (br->n / 8 < br->size) {
+    b = (br->data[br->n / 8] & bit(7 - (br->n % 8))) > 0;
+    br->n++;
   }
   return b;
 }
 
-static int overflow(struct bitreader *br) { return br->bit / 8 >= br->size; }
-
-void decoderinit(struct decoder *d, word wordsize, unsigned char *data,
-                 int size) {
-  struct decoder empty = {0};
-  *d = empty;
-  d->br.data = data;
-  d->br.size = size;
-  d->wordsize = wordsize;
-}
-
-void Decodernext(struct decoder *d, word *sample) {
-  word dwm = 0; /* "delta width modifier" */
-  /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and a
-   * sign bit. */
-  while (dwm < d->wordsize / 2 && !nextbit(&d->br))
-    dwm++;
-  if (dwm) { /* deltawidth is changing */
-    dwm *= nextbit(&d->br) ? -1 : 1;
-    d->deltawidth += dwm;
-    /* Deltawidth wraps around. This allows the encoding to minimize the
-     * absolute value of dwm, which matters because dwm is encoded in unary. */
-    if (d->deltawidth >= d->wordsize)
-      d->deltawidth -= d->wordsize;
-    else if (d->deltawidth < 0)
-      d->deltawidth += d->wordsize;
-  }
-  if (d->deltawidth) { /* non-zero delta: sample is changing */
-    word i, delta;
-    /* Start iteration from 1 because the leading 1 of delta is implied */
-    for (i = 1, delta = 1; i < d->deltawidth; i++)
-      delta = (delta << 1) | nextbit(&d->br);
-    delta *= nextbit(&d->br) ? -1 : 1;
-    /* The lowest possible value for delta at this point is -(1 << (wordsize
-     * -1)). So if wordsize is 8, the lowest possible value is -127. In 2's
-     * complement we must also be able to represent -128. To account for this
-     * DWVW adds an extra bit. To save space this bit is only present when
-     * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and -128
-     * is 1111111 1 1. */
-    if (delta == 1 - bit(d->wordsize - 1))
-      delta -= nextbit(&d->br);
-    if (DEBUG > 1)
-      fprintf(stderr, "delta=%lld\n", delta);
-    d->sample += delta;
-    if (d->sample >= bit(d->wordsize - 1))
-      d->sample -= bit(d->wordsize);
-    else if (d->sample < -bit(d->wordsize - 1))
-      d->sample += bit(d->wordsize);
-  } else if (DEBUG > 1) {
-    fputs("delta=0\n", stderr);
-  }
-  *sample = d->sample;
-}
-
-int decodernext(struct decoder *d, word *sample) {
-  Decodernext(d, sample);
-  return overflow(&d->br) ? -2 : 0;
-}
-int decoderpos(struct decoder *d) { return d->br.bit / 8 + 1; }
-
 int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
                int stride, uint8_t *output, word outwordsize) {
-  struct decoder d;
+  struct bitreader br = {0};
+  word deltawidth = 0, sample = 0;
   uint8_t *p = output;
   int j;
-  decoderinit(&d, inwordsize, input, inend - input);
+  br.data = input;
+  br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
-    word sample;
-    int err;
-    if (err = decodernext(&d, &sample), err)
-      fail("sample %d: decoder: %d", j, err);
+    word dwm = 0; /* "delta width modifier" */
+    /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and
+     * a sign bit. */
+    while (dwm < inwordsize / 2 && !nextbit(&br))
+      dwm++;
+    if (dwm) { /* deltawidth is changing */
+      dwm *= nextbit(&br) ? -1 : 1;
+      deltawidth += dwm;
+      /* Deltawidth wraps around. This allows the encoding to minimize the
+       * absolute value of dwm, which matters because dwm is encoded in unary.
+       */
+      if (deltawidth >= inwordsize)
+        deltawidth -= inwordsize;
+      else if (deltawidth < 0)
+        deltawidth += inwordsize;
+    }
+    if (deltawidth) { /* non-zero delta: sample is changing */
+      word i, delta;
+      /* Start iteration from 1 because the leading 1 of delta is implied */
+      for (i = 1, delta = 1; i < deltawidth; i++)
+        delta = (delta << 1) | nextbit(&br);
+      delta *= nextbit(&br) ? -1 : 1;
+      /* The lowest possible value for delta at this point is -(1 << (inwordsize
+       * -1)). So if inwordsize is 8, the lowest possible value is -127. In 2's
+       * complement we must also be able to represent -128. To account for this
+       * DWVW adds an extra bit. To save space this bit is only present when
+       * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and
+       * -128 is 1111111 1 1. */
+      if (delta == 1 - bit(inwordsize - 1))
+        delta -= nextbit(&br);
+      if (DEBUG > 1)
+        fprintf(stderr, "delta=%lld\n", delta);
+      sample += delta;
+      if (sample >= bit(inwordsize - 1))
+        sample -= bit(inwordsize);
+      else if (sample < -bit(inwordsize - 1))
+        sample += bit(inwordsize);
+    } else if (DEBUG > 1) {
+      fputs("delta=0\n", stderr);
+    }
     p += putbe(sample << (outwordsize - inwordsize), outwordsize, p);
     p += (stride - 1) * outwordsize / 8;
   }
-  return decoderpos(&d);
+  return (br.n + 7) / 8;
 }
 
 void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
