@@ -235,7 +235,6 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
                int stride, uint8_t *output, word outwordsize) {
   struct bitreader br = {0};
   word deltawidth = 0, sample = 0;
-  uint8_t *p = output;
   int j;
   br.data = input;
   br.size = inend - input;
@@ -244,7 +243,7 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
     /* Dwm is encoded in unary as a string of zeroes */
     while (dwm < inwordsize / 2 && !getbit(&br))
       dwm++;
-    if (dwm) /* dwm sign omitted if dwm is zero */
+    if (dwm) /* Dwm sign omitted if dwm is zero */
       dwm = getbit(&br) ? -dwm : dwm;
     deltawidth += dwm;
     if (deltawidth >= inwordsize)
@@ -254,14 +253,9 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
     /* Start iteration from 1 because the leading 1 of delta is implied */
     for (i = 1, delta = 1; i < deltawidth; i++)
       delta = (delta << 1) | getbit(&br);
-    if (deltawidth) /* delta sign omitted if delta is zero */
+    if (deltawidth) /* Delta sign omitted if delta is zero */
       delta = getbit(&br) ? -delta : delta;
-    /* The lowest possible value for delta at this point is -(1 << (inwordsize
-     * -1)). So if inwordsize is 8, the lowest possible value is -127. In 2's
-     * complement we must also be able to represent -128. To account for this
-     * DWVW adds an extra bit. To save space this bit is only present when
-     * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and
-     * -128 is 1111111 1 1. */
+    /* Trick to represent -(1 << (inwordsize - 1)) */
     if (delta == 1 - bit(inwordsize - 1))
       delta -= getbit(&br);
     if (DEBUG > 1)
@@ -271,8 +265,8 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
       sample -= bit(inwordsize);
     else if (sample < -bit(inwordsize - 1))
       sample += bit(inwordsize);
-    p += putint(sample << (outwordsize - inwordsize), outwordsize, p);
-    p += (stride - 1) * outwordsize / 8;
+    output += putint(sample << (outwordsize - inwordsize), outwordsize, output);
+    output += (stride - 1) * outwordsize / 8;
   }
   return (br.n + 7) / 8;
 }
@@ -357,8 +351,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
         pp += decodedwvw(pp, p + 8 + getint(p + 4, 32), comm.nsamples,
                          comm.wordsize, comm.nchannels,
                          q + i * (outwordsize / 8), outwordsize);
-        if ((pp - p) & 1)
-          pp++;
+        pp += (pp - p) & 1;
       }
       q += comm.nchannels * comm.nsamples * (outwordsize / 8);
       putint('SSND', 32, ssnd);
