@@ -345,13 +345,13 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       putint(18 + 20, 32, q + 4);
       q += 18 + 20 + 8;
     } else if (ID == 'SSND') {
-      uint8_t *ssnd = q, *pp = p + 16;
+      uint8_t *ssnd = q, *dwvwstart = p + 16, *dwvwend = p + 8 + size;
       q += 16;
       for (i = 0; i < comm.nchannels; i++) {
-        pp += decodedwvw(pp, p + 8 + getint(p + 4, 32), comm.nsamples,
-                         comm.wordsize, comm.nchannels,
-                         q + i * (outwordsize / 8), outwordsize);
-        pp += (pp - p) & 1;
+        dwvwstart +=
+            decodedwvw(dwvwstart, dwvwend, comm.nsamples, comm.wordsize,
+                       comm.nchannels, q + i * (outwordsize / 8), outwordsize);
+        dwvwstart += (dwvwstart - p) & 1;
       }
       q += comm.nchannels * comm.nsamples * (outwordsize / 8);
       putint('SSND', 32, ssnd);
