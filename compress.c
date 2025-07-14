@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef COMPRESSED_WORD_SIZE
+#define COMPRESSED_WORD_SIZE 12
+#endif
+
 uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *p = start;
   while (p < end - 8) {
@@ -165,12 +169,6 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
 int main(int argc, char **argv) {
   uint8_t *in, *inend, *comm, *out;
   int32_t filetype, insize, commsize;
-  word outwordsize;
-  if (argc != 2) {
-    fputs("Usage: compress OUTPUT_WORD_SIZE\n", stderr);
-    exit(1);
-  }
-  outwordsize = atoi(argv[1]);
   in = loadform(stdin, &insize);
   inend = in + insize;
   filetype = readint(in + 8, 32);
@@ -189,5 +187,5 @@ int main(int argc, char **argv) {
     fail("bad input file size: %d", insize);
   if (out = malloc(2 * insize), !out)
     fail("malloc output failed");
-  compress(in, inend, comm, out, outwordsize);
+  compress(in, inend, comm, out, COMPRESSED_WORD_SIZE);
 }
