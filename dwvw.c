@@ -240,42 +240,37 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
   br.data = input;
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
-    word dwm = 0; /* "delta width modifier" */
+    word i, delta = 0, dwm = 0; /* "delta width modifier" */
     /* Dwm is encoded in unary as a string of zeroes */
     while (dwm < inwordsize / 2 && !getbit(&br))
       dwm++;
-    if (dwm) { /* deltawidth is changing */
+    if (dwm) /* dwm sign omitted if dwm is zero */
       dwm = getbit(&br) ? -dwm : dwm;
-      deltawidth += dwm;
-      if (deltawidth >= inwordsize)
-        deltawidth -= inwordsize;
-      else if (deltawidth < 0)
-        deltawidth += inwordsize;
-    }
-    if (deltawidth) { /* non-zero delta: sample is changing */
-      word i, delta;
-      /* Start iteration from 1 because the leading 1 of delta is implied */
-      for (i = 1, delta = 1; i < deltawidth; i++)
-        delta = (delta << 1) | getbit(&br);
+    deltawidth += dwm;
+    if (deltawidth >= inwordsize)
+      deltawidth -= inwordsize;
+    else if (deltawidth < 0)
+      deltawidth += inwordsize;
+    /* Start iteration from 1 because the leading 1 of delta is implied */
+    for (i = 1, delta = 1; i < deltawidth; i++)
+      delta = (delta << 1) | getbit(&br);
+    if (deltawidth) /* delta sign omitted if delta is zero */
       delta = getbit(&br) ? -delta : delta;
-      /* The lowest possible value for delta at this point is -(1 << (inwordsize
-       * -1)). So if inwordsize is 8, the lowest possible value is -127. In 2's
-       * complement we must also be able to represent -128. To account for this
-       * DWVW adds an extra bit. To save space this bit is only present when
-       * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and
-       * -128 is 1111111 1 1. */
-      if (delta == 1 - bit(inwordsize - 1))
-        delta -= getbit(&br);
-      if (DEBUG > 1)
-        fprintf(stderr, "delta=%lld\n", delta);
-      sample += delta;
-      if (sample >= bit(inwordsize - 1))
-        sample -= bit(inwordsize);
-      else if (sample < -bit(inwordsize - 1))
-        sample += bit(inwordsize);
-    } else if (DEBUG > 1) {
-      fputs("delta=0\n", stderr);
-    }
+    /* The lowest possible value for delta at this point is -(1 << (inwordsize
+     * -1)). So if inwordsize is 8, the lowest possible value is -127. In 2's
+     * complement we must also be able to represent -128. To account for this
+     * DWVW adds an extra bit. To save space this bit is only present when
+     * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and
+     * -128 is 1111111 1 1. */
+    if (delta == 1 - bit(inwordsize - 1))
+      delta -= getbit(&br);
+    if (DEBUG > 1)
+      fprintf(stderr, "delta=%lld\n", delta);
+    sample += delta;
+    if (sample >= bit(inwordsize - 1))
+      sample -= bit(inwordsize);
+    else if (sample < -bit(inwordsize - 1))
+      sample += bit(inwordsize);
     p += putint(sample << (outwordsize - inwordsize), outwordsize, p);
     p += (stride - 1) * outwordsize / 8;
   }
