@@ -150,7 +150,7 @@ struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
 }
 
 struct bitwriter {
-  uint8_t *p;
+  uint8_t *data;
   int n, size;
 };
 
@@ -158,8 +158,8 @@ void putbit(struct bitwriter *bw, int value) {
   int byte = bw->n / 8, shift = 7 - bw->n % 8;
   if (byte < bw->size) {
     if (shift == 7)
-      bw->p[byte] = 0;
-    bw->p[byte] |= value << shift;
+      bw->data[byte] = 0;
+    bw->data[byte] |= value << shift;
     bw->n++;
   }
 }
@@ -170,7 +170,7 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
   word lastsample = 0, lastdeltawidth = 0,
        deltarange = bit(outwordsize - 1) - 1;
   struct bitwriter bw = {0};
-  bw.p = output;
+  bw.data = output;
   bw.size = outputend - output;
   for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
