@@ -289,14 +289,15 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
   while (p < inend - 8) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     if (ID == 'COMM') {
-      int compressoff = 18 + 8;
+      uint8_t compressinfo[] = "DWVWxDelta With Variable Word Width\x00";
+      int compressoff = 18 + 8, compressinfosize = sizeof(compressinfo) - 1;
       memmove(q, p, compressoff);
       putint(outwordsize, 16, q + 14);
-      memmove(q + compressoff, "DWVWxDelta With Variable Word Width\x00", 36);
+      memmove(q + compressoff, compressinfo, compressinfosize);
       q[compressoff + 4] =
           0x1f; /* not allowed to put \x1f in string literal?? */
-      putint(18 + 36, 32, q + 4);
-      q += 18 + 36 + 8;
+      putint(18 + compressinfosize, 32, q + 4);
+      q += 18 + sizeof(compressinfo) + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q;
       int i;
@@ -338,12 +339,13 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     int i;
     if (ID == 'COMM') {
-      int compressoff = 18 + 8;
+      uint8_t compressinfo[] = "NONE\x0enot compressed\x00";
+      int compressoff = 18 + 8, compressinfosize = sizeof(compressinfo) - 1;
       memmove(q, p, compressoff);
       putint(outwordsize, 16, q + 14);
-      memmove(q + compressoff, "NONE\x0enot compressed\x00", 20);
-      putint(18 + 20, 32, q + 4);
-      q += 18 + 20 + 8;
+      memmove(q + compressoff, compressinfo, compressinfosize);
+      putint(18 + compressinfosize, 32, q + 4);
+      q += 18 + compressinfosize + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q, *dwvwstart = p + 16, *dwvwend = p + 8 + size;
       q += 16;
