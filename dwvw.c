@@ -54,7 +54,7 @@ int64_t getint(unsigned char *p, int width) {
   return x;
 }
 
-int putbe(word x, word wordsize, unsigned char *p) {
+int putint(word x, word wordsize, unsigned char *p) {
   word shift;
   if (x < 0)
     x += bit(wordsize);
@@ -111,9 +111,9 @@ uint8_t *loadform(FILE *f, int32_t *size) {
 void writeform(FILE *f, uint8_t *start, uint8_t *end) {
   if (end < start || end - start > INT32_MAX)
     fail("writeform: invalid memory range");
-  putbe('FORM', 32, start);
-  putbe(end - start - 8, 32, start + 4);
-  putbe('AIFC', 32, start + 8);
+  putint('FORM', 32, start);
+  putint(end - start - 8, 32, start + 4);
+  putint('AIFC', 32, start + 8);
   if (!fwrite(start, end - start, 1, f))
     fail("fwrite failed");
 }
@@ -279,7 +279,7 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
     } else if (DEBUG > 1) {
       fputs("delta=0\n", stderr);
     }
-    p += putbe(sample << (outwordsize - inwordsize), outwordsize, p);
+    p += putint(sample << (outwordsize - inwordsize), outwordsize, p);
     p += (stride - 1) * outwordsize / 8;
   }
   return (br.n + 7) / 8;
@@ -305,11 +305,11 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
     if (ID == 'COMM') {
       int compressoff = 18 + 8;
       memmove(q, p, compressoff);
-      putbe(outwordsize, 16, q + 14);
+      putint(outwordsize, 16, q + 14);
       memmove(q + compressoff, "DWVWxDelta With Variable Word Width\x00", 36);
       q[compressoff + 4] =
           0x1f; /* not allowed to put \x1f in string literal?? */
-      putbe(18 + 36, 32, q + 4);
+      putint(18 + 36, 32, q + 4);
       q += 18 + 36 + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q;
@@ -323,10 +323,10 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
           fail("write overflow");
         q += (q - ssnd) & 1;
       }
-      putbe('SSND', 32, ssnd);
-      putbe(q - ssnd - 8, 32, ssnd + 4);
-      putbe(0, 32, ssnd + 8);
-      putbe(0, 32, ssnd + 12);
+      putint('SSND', 32, ssnd);
+      putint(q - ssnd - 8, 32, ssnd + 4);
+      putint(0, 32, ssnd + 8);
+      putint(0, 32, ssnd + 12);
     } else {
       memmove(q, p, size + 8);
       q += size + 8;
@@ -354,9 +354,9 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
     if (ID == 'COMM') {
       int compressoff = 18 + 8;
       memmove(q, p, compressoff);
-      putbe(outwordsize, 16, q + 14);
+      putint(outwordsize, 16, q + 14);
       memmove(q + compressoff, "NONE\x0enot compressed\x00", 20);
-      putbe(18 + 20, 32, q + 4);
+      putint(18 + 20, 32, q + 4);
       q += 18 + 20 + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q, *pp = p + 16;
@@ -369,10 +369,10 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
           pp++;
       }
       q += comm.nchannels * comm.nsamples * (outwordsize / 8);
-      putbe('SSND', 32, ssnd);
-      putbe(q - ssnd - 8, 32, ssnd + 4);
-      putbe(0, 32, ssnd + 8);
-      putbe(0, 32, ssnd + 12);
+      putint('SSND', 32, ssnd);
+      putint(q - ssnd - 8, 32, ssnd + 4);
+      putint(0, 32, ssnd + 8);
+      putint(0, 32, ssnd + 12);
     } else {
       memmove(q, p, size + 8);
       q += size + 8;
