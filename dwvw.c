@@ -193,8 +193,6 @@ struct bitreader {
 struct decoder {
   struct bitreader br;
   word deltawidth, sample, wordsize;
-  int dwmstats[32 / 2 + 1];
-  int dwstats[32];
 };
 
 word nextbit(struct bitreader *br) {
@@ -223,7 +221,6 @@ void Decodernext(struct decoder *d, word *sample) {
    * sign bit. */
   while (dwm < d->wordsize / 2 && !nextbit(&d->br))
     dwm++;
-  d->dwmstats[dwm]++;
   if (dwm) { /* deltawidth is changing */
     dwm *= nextbit(&d->br) ? -1 : 1;
     d->deltawidth += dwm;
@@ -234,7 +231,6 @@ void Decodernext(struct decoder *d, word *sample) {
     else if (d->deltawidth < 0)
       d->deltawidth += d->wordsize;
   }
-  d->dwstats[d->deltawidth]++;
   if (d->deltawidth) { /* non-zero delta: sample is changing */
     word i, delta;
     /* Start iteration from 1 because the leading 1 of delta is implied */
@@ -267,16 +263,6 @@ int decodernext(struct decoder *d, word *sample) {
   return overflow(&d->br) ? -2 : 0;
 }
 int decoderpos(struct decoder *d) { return d->br.bit / 8 + 1; }
-
-void decoderprintstats(struct decoder *d, FILE *f) {
-  int i;
-  fputs("dwm stats:\n", f);
-  for (i = 0; i < d->wordsize / 2 + 1; i++)
-    fprintf(f, "%2d %d\n", i, d->dwmstats[i]);
-  fputs("deltawidth stats:\n", f);
-  for (i = 0; i < d->wordsize; i++)
-    fprintf(f, "%2d %d\n", i, d->dwstats[i]);
-}
 
 int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
                int stride, uint8_t *output, word outwordsize) {
@@ -358,7 +344,6 @@ void decompress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f) {
   uint32_t nsamples = readuint(comm + 10, 32);
   uint8_t *p, *q, *out;
   int outsize;
-  fprintf(stderr, "inwordsize=%d outwordsize=%d\n", inwordsize, outwordsize);
   if (inwordsize < 1 || inwordsize > 32)
     fail("invalid input word size: %d", inwordsize);
   if (nchannels < 1)
