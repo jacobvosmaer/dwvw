@@ -1,7 +1,0 @@
-#!/bin/sh
-exe=$1
-in=$2
-shift
-shift
-lldb --one-line "settings set target.input-path $in" --one-line 'process launch' "$exe" -- "$@"
-
