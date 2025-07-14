@@ -38,7 +38,7 @@ void fail(char *fmt, ...) {
 typedef int64_t word;
 #define bit(shift) ((word)1 << (shift))
 
-int64_t readuint(unsigned char *p, int width) {
+int64_t getuint(unsigned char *p, int width) {
   int i;
   int64_t x;
   assert(width > 0 && width <= 32 && !(width % 8));
@@ -47,8 +47,8 @@ int64_t readuint(unsigned char *p, int width) {
   return x;
 }
 
-int64_t readint(unsigned char *p, int width) {
-  int64_t x = readuint(p, width), sup = (int64_t)1 << (width - 1);
+int64_t getint(unsigned char *p, int width) {
+  int64_t x = getuint(p, width), sup = (int64_t)1 << (width - 1);
   if (x >= sup)
     x -= (int64_t)1 << width;
   return x;
@@ -70,10 +70,10 @@ int putbe(word x, word wordsize, unsigned char *p) {
 uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *p = start;
   while (p < end - 8) {
-    int32_t size = readint(p + 4, 32);
+    int32_t size = getint(p + 4, 32);
     if (size < 0 || size > end - (p + 8))
       fail("chunk %4.4s: invalid size %d", p, size);
-    if (readint(p, 32) == ID)
+    if (getint(p, 32) == ID)
       return p;
     p += size + 8;
   }
@@ -83,7 +83,7 @@ uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
 uint8_t *finduniquechunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *chunk = findchunk(ID, start, end), *chunk2;
   if (chunk < end)
-    if (chunk2 = findchunk(ID, chunk + 8 + readint(chunk + 4, 32), end),
+    if (chunk2 = findchunk(ID, chunk + 8 + getint(chunk + 4, 32), end),
         chunk2 < end)
       fail("duplicate %4.4s chunk", chunk);
   return chunk;
@@ -94,9 +94,9 @@ uint8_t *loadform(FILE *f, int32_t *size) {
   int32_t formsize;
   if (!fread(buf, sizeof(buf), 1, f))
     fail("read AIFF header: short read");
-  if (readint(buf, 32) != 'FORM')
+  if (getint(buf, 32) != 'FORM')
     fail("missing FORM");
-  formsize = readint(buf + 4, 32);
+  formsize = getint(buf + 4, 32);
   if (formsize < 4 || formsize > INT32_MAX - 8)
     fail("invalid FORM size: %d", formsize);
   *size = formsize + 8;
@@ -132,18 +132,18 @@ struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
   struct comm cm = {0};
   if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
     fail("cannot find COMM chunk");
-  cm.size = readint(comm + 4, 32);
+  cm.size = getint(comm + 4, 32);
   if (cm.size < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", cm.size);
-  cm.nchannels = readint(comm + 8, 16);
+  cm.nchannels = getint(comm + 8, 16);
   if (cm.nchannels < 1)
     fail("invalid number of channels: %d", cm.nchannels);
-  cm.nsamples = readuint(comm + 10, 32);
-  cm.wordsize = readint(comm + 14, 16);
+  cm.nsamples = getuint(comm + 10, 32);
+  cm.wordsize = getint(comm + 14, 16);
   if (cm.wordsize < 1 || cm.wordsize > 32)
     fail("invalid wordsize: %d", cm.wordsize);
   if (cm.size >= 22) {
-    cm.compressiontype = readint(comm + 8 + 18, 32);
+    cm.compressiontype = getint(comm + 8 + 18, 32);
     memmove(&cm.compressiontypestring, comm + 8 + 18, 4);
   }
   return cm;
@@ -174,7 +174,7 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
   bw.size = outputend - output;
   for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
-    word delta, sample = readint(input, inwordsize);
+    word delta, sample = getint(input, inwordsize);
     input += stride * inwordsize / 8;
     if (inwordsize < outwordsize)
       sample <<= outwordsize - inwordsize;
@@ -289,7 +289,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
               word outwordsize) {
   uint8_t *p, *q, *out;
   int outmax;
-  if (readint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
+  if (getint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
     fail("unsupported input AIFC compression format: 4.4s",
          comm.compressiontypestring);
   outmax = (inend - in) * 2 *
@@ -301,7 +301,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
   p = in + 12;
   q = out + 12;
   while (p < inend - 8) {
-    int32_t ID = readint(p, 32), size = readint(p + 4, 32);
+    int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     if (ID == 'COMM') {
       int compressoff = 18 + 8;
       memmove(q, p, compressoff);
@@ -340,7 +340,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   int16_t outwordsize = 8 * ((comm.wordsize + 7) / 8);
   uint8_t *p, *q, *out;
   int outmax;
-  if (readint(in + 8, 32) != 'AIFC' || comm.compressiontype != 'DWVW')
+  if (getint(in + 8, 32) != 'AIFC' || comm.compressiontype != 'DWVW')
     fail("unsupported input AIFC compression format: %4.4s",
          comm.compressiontypestring);
   outmax = inend - in + comm.nchannels * comm.nsamples * (outwordsize / 8);
@@ -349,7 +349,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   p = in + 12;
   q = out + 12;
   while (p < inend - 8) {
-    int32_t ID = readint(p, 32), size = readint(p + 4, 32);
+    int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     int i;
     if (ID == 'COMM') {
       int compressoff = 18 + 8;
@@ -362,7 +362,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       uint8_t *ssnd = q, *pp = p + 16;
       q += 16;
       for (i = 0; i < comm.nchannels; i++) {
-        pp += decodedwvw(pp, p + 8 + readint(p + 4, 32), comm.nsamples,
+        pp += decodedwvw(pp, p + 8 + getint(p + 4, 32), comm.nsamples,
                          comm.wordsize, comm.nchannels,
                          q + i * (outwordsize / 8), outwordsize);
         if ((pp - p) & 1)
@@ -393,7 +393,7 @@ int main(int argc, char **argv) {
   }
   in = loadform(stdin, &insize);
   inend = in + insize;
-  filetype = readint(in + 8, 32);
+  filetype = getint(in + 8, 32);
   if (filetype != 'AIFF' && filetype != 'AIFC')
     fail("invalid file type: %4.4s", in + 8);
   if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
