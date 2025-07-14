@@ -1,6 +1,6 @@
 CFLAGS += -std=gnu89 -Wall -pedantic
 OBJS = decode.o decoder.o fail.o int.o
-EXE = decode decompress compress
+EXE = decode decompress dwvw
 all: $(EXE)
 clean:
 	rm -f -- $(OBJS) $(EXE)
@@ -10,4 +10,4 @@ fail.o: fail.h
 aiff.o: aiff.h int.o
 int.o: int.h
 decompress: decoder.o fail.o aiff.o int.o
-compress: fail.o int.o
+

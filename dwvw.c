@@ -1,9 +1,69 @@
+/*
+dwvw: a compression/decompression utility for the Typhoon DWVW audio compression
+format.
 
-#include "fail.h"
-#include "int.h"
+DWVW was invented 1991 by Magnus Lidström and is copyright 1993 by NuEdge
+Development.
+
+This decoder is based on documentation in "fmt_typh.rtf" published on
+ftp.t0.or.at.
+*/
+
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define assert(x)                                                              \
+  if (!(x))                                                                    \
+  __builtin_trap()
+
+#ifndef DEBUG
+#define DEBUG 0
+#endif
+
+void fail(char *fmt, ...) {
+  va_list ap;
+  if (DEBUG)
+    assert(0);
+  fputs("error: ", stderr);
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fputc('\n', stderr);
+  exit(1);
+}
+
+typedef int64_t word;
+#define bit(shift) ((word)1 << (shift))
+
+int64_t readuint(unsigned char *p, int width) {
+  int i;
+  int64_t x;
+  assert(width > 0 && width <= 32 && !(width % 8));
+  for (i = 0, x = 0; i < width / 8; i++)
+    x = (x << 8) | (int64_t)*p++;
+  return x;
+}
+
+int64_t readint(unsigned char *p, int width) {
+  int64_t x = readuint(p, width), sup = (int64_t)1 << (width - 1);
+  if (x >= sup)
+    x -= (int64_t)1 << width;
+  return x;
+}
+
+int putbe(word x, word wordsize, unsigned char *p) {
+  word shift;
+  if (x < 0)
+    x += bit(wordsize);
+  for (shift = wordsize - 8; shift >= 0; shift -= 8)
+    *p++ = x >> shift;
+  return wordsize / 8;
+}
+
+#define width(x) (64 - __builtin_clzg((uint64_t)(x > 0 ? x : -x)))
 
 #ifndef COMPRESSED_WORD_SIZE
 #define COMPRESSED_WORD_SIZE 12
@@ -185,6 +245,10 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
 int main(int argc, char **argv) {
   uint8_t *in, *inend, *comm;
   int32_t filetype, insize, commsize;
+  if (argc != 2 || strcmp(argv[1], "compress")) {
+    fputs("Usage: dwvw compress\n", stderr);
+    exit(1);
+  }
   in = loadform(stdin, &insize);
   inend = in + insize;
   filetype = readint(in + 8, 32);
