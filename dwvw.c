@@ -63,8 +63,6 @@ int putbe(word x, word wordsize, unsigned char *p) {
   return wordsize / 8;
 }
 
-#define width(x) (64 - __builtin_clzg((uint64_t)(x > 0 ? x : -x)))
-
 #ifndef COMPRESSED_WORD_SIZE
 #define COMPRESSED_WORD_SIZE 12
 #endif
@@ -152,14 +150,17 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
     else
       sample >>= inwordsize - outwordsize; /* TODO dither? */
     delta = sample - lastsample;
+    lastsample = sample;
     if (delta >= bit(outwordsize - 1))
       delta -= bit(outwordsize);
     else if (delta < -bit(outwordsize - 1))
       delta += bit(outwordsize);
     if (DEBUG > 1)
       fprintf(stderr, "delta=%lld\n", delta);
-    lastsample = sample;
-    deltawidth = width(delta);
+    deltasign = delta < 0;
+    delta = deltasign ? -delta : delta;
+    for (deltawidth = 0; (1 << deltawidth) <= delta; deltawidth++)
+      ;
     dwm = deltawidth - lastdeltawidth;
     lastdeltawidth = deltawidth;
     if (dwm > outwordsize / 2)
@@ -174,8 +175,6 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
       putbit(&bw, 1);
     if (dwm)
       putbit(&bw, dwmsign);
-    deltasign = delta < 0;
-    delta = deltasign ? -delta : delta;
     for (i = 1; i < deltawidth; i++)
       putbit(&bw, (delta & bit(deltawidth - 1 - i)) > 0);
     if (deltawidth)
