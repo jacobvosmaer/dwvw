@@ -123,11 +123,23 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
-void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
+void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
               word outwordsize) {
-  uint8_t *p = in + 12, *q = out + 12;
+  uint8_t *p, *q, *out;
+  int outmax;
+  int16_t inwordsize = readint(comm + 14, 16);
+  if (inwordsize < 1 || inwordsize > 32)
+    fail("invalid input word size: %d", inwordsize);
   if (readint(in + 8, 32) == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
     fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
+  outmax =
+      (inend - in) * 2 *
+      (outwordsize > inwordsize ? (outwordsize + inwordsize - 1) / inwordsize
+                                : 1);
+  if (out = malloc(outmax), !out)
+    fail("malloc output failed");
+  p = in + 12;
+  q = out + 12;
   while (p < inend - 8) {
     int32_t ID = readint(p, 32), size = readint(p + 4, 32);
     if (ID == 'COMM') {
@@ -143,12 +155,9 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
       uint8_t *ssnd = q;
       int16_t nchannels = readint(comm + 8, 16);
       uint32_t nsamples = readuint(comm + 10, 32);
-      int16_t inwordsize = readint(comm + 14, 16);
       int i;
       if (nchannels < 1)
         fail("invalid number of channels: %d", nchannels);
-      if (inwordsize < 1 || inwordsize > 32)
-        fail("invalid input word size: %d", inwordsize);
       q += 16;
       for (i = 0; i < nchannels; i++) {
         q += encodedwvw(p + 16 + i * inwordsize / 8, nsamples, inwordsize,
@@ -165,11 +174,11 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
     }
     p += size + 8;
   }
-  writeform(stdout, out, q);
+  writeform(f, out, q);
 }
 
 int main(int argc, char **argv) {
-  uint8_t *in, *inend, *comm, *out;
+  uint8_t *in, *inend, *comm;
   int32_t filetype, insize, commsize;
   in = loadform(stdin, &insize);
   inend = in + insize;
@@ -183,9 +192,5 @@ int main(int argc, char **argv) {
   if (commsize = readint(comm + 4, 32),
       commsize < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", commsize);
-  if (insize < 0 || insize > INT32_MAX / 2)
-    fail("bad input file size: %d", insize);
-  if (out = malloc(2 * insize), !out)
-    fail("malloc output failed");
-  compress(in, inend, comm, out, COMPRESSED_WORD_SIZE);
+  compress(in, inend, comm, stdout, COMPRESSED_WORD_SIZE);
 }
