@@ -351,6 +351,8 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
         dwvwstart += decodedwvw(dwvwstart, dwvwend, comm.nsamples,
                                 comm.wordsize, comm.nchannels,
                                 ssnd + 16 + i * (outwordsize / 8), outwordsize);
+        if (dwvwstart >= dwvwend)
+          fail("read overflow");
         dwvwstart += (dwvwstart - p) & 1;
         q += comm.nsamples * (outwordsize / 8);
       }
