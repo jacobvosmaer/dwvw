@@ -118,6 +118,31 @@ void writeform(FILE *f, uint8_t *start, uint8_t *end) {
     fail("fwrite failed");
 }
 
+struct comm {
+  int32_t size;
+  int16_t nchannels;
+  uint32_t nsamples;
+  int16_t wordsize;
+  int32_t compressiontype;
+};
+
+struct comm loadcomm(uint8_t *comm) {
+  struct comm cm = {0};
+  cm.size = readint(comm + 4, 32);
+  if (cm.size < 18)
+    fail("invalid comm size: %d", cm.size);
+  cm.nchannels = readint(comm + 8, 16);
+  if (cm.nchannels < 1)
+    fail("invalid number of channels: %d", cm.nchannels);
+  cm.nsamples = readuint(comm + 10, 32);
+  cm.wordsize = readint(comm + 14, 16);
+  if (cm.wordsize < 1 || cm.wordsize > 32)
+    fail("invalid wordsize: %d", cm.wordsize);
+  if (cm.size >= 22)
+    cm.compressiontype = readint(comm + 8 + 18, 32);
+  return cm;
+}
+
 struct bitwriter {
   uint8_t *p;
   int n, size;
@@ -281,15 +306,15 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
   return decoderpos(&d);
 }
 
-void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
+void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
               word outwordsize) {
   uint8_t *p, *q, *out;
   int outmax;
-  int16_t inwordsize = readint(comm + 14, 16);
-  if (inwordsize < 1 || inwordsize > 32)
-    fail("invalid input word size: %d", inwordsize);
-  if (readint(in + 8, 32) == 'AIFC' && readint(comm + 8 + 18, 32) != 'NONE')
-    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
+  int16_t inwordsize = comm.wordsize;
+  if (readint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
+    fail("unsupported input AIFC compression format: %c%c%c%c",
+         comm.compressiontype >> 24, comm.compressiontype >> 16,
+         comm.compressiontype >> 8, comm.compressiontype);
   outmax =
       (inend - in) * 2 *
       (outwordsize > inwordsize ? (outwordsize + inwordsize - 1) / inwordsize
@@ -311,11 +336,9 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
       q += 18 + 36 + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q;
-      int16_t nchannels = readint(comm + 8, 16);
-      uint32_t nsamples = readuint(comm + 10, 32);
+      int16_t nchannels = comm.nchannels;
+      uint32_t nsamples = comm.nsamples;
       int i;
-      if (nchannels < 1)
-        fail("invalid number of channels: %d", nchannels);
       q += 16;
       for (i = 0; i < nchannels; i++) {
         q += encodedwvw(p + 16 + i * inwordsize / 8, nsamples, inwordsize,
@@ -337,20 +360,17 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
   writeform(f, out, q);
 }
 
-void decompress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f) {
-  int16_t inwordsize = readint(comm + 14, 16),
-          outwordsize = 8 * ((inwordsize + 7) / 8),
-          nchannels = readint(comm + 8, 16);
-  uint32_t nsamples = readuint(comm + 10, 32);
+void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
+  int16_t inwordsize = comm.wordsize, outwordsize = 8 * ((inwordsize + 7) / 8),
+          nchannels = comm.nchannels;
+  uint32_t nsamples = comm.nsamples;
   uint8_t *p, *q, *out;
   int outsize;
-  if (inwordsize < 1 || inwordsize > 32)
-    fail("invalid input word size: %d", inwordsize);
-  if (nchannels < 1)
-    fail("invalid number of channels: %d", nchannels);
-  if (readint(in + 8, 32) != 'AIFC' || readint(comm + 4, 32) < 24 ||
-      readint(comm + 8 + 18, 32) != 'DWVW')
-    fail("unsupported input AIFC compression format: %4.4s", comm + 8 + 18);
+
+  if (readint(in + 8, 32) != 'AIFC' || comm.compressiontype != 'DWVW')
+    fail("unsupported input AIFC compression format: %c%c%c%c",
+         comm.compressiontype >> 24, comm.compressiontype >> 16,
+         comm.compressiontype >> 8, comm.compressiontype);
 
   outsize = inend - in + nchannels * nsamples * (outwordsize / 8);
   if (out = malloc(outsize), !out)
@@ -394,6 +414,7 @@ void decompress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f) {
 int main(int argc, char **argv) {
   uint8_t *in, *inend, *comm;
   int32_t filetype, insize, commsize;
+  struct comm cm;
   if (argc != 2 ||
       (strcmp(argv[1], "compress") && strcmp(argv[1], "decompress"))) {
     fputs("Usage: dwvw compress|decompress\n", stderr);
@@ -411,8 +432,9 @@ int main(int argc, char **argv) {
   if (commsize = readint(comm + 4, 32),
       commsize < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", commsize);
+  cm = loadcomm(comm);
   if (!strcmp(argv[1], "compress"))
-    compress(in, inend, comm, stdout, COMPRESSED_WORD_SIZE);
+    compress(in, inend, cm, stdout, COMPRESSED_WORD_SIZE);
   else
-    decompress(in, inend, comm, stdout);
+    decompress(in, inend, cm, stdout);
 }
