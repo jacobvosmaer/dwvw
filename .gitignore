@@ -1,11 +1,8 @@
-decode
 *.raw
 *.dSYM/
 *.wav
 *.o
-decompress
 *.aiff
 *.C01
-compress
 *.img
 dwvw
