@@ -46,6 +46,16 @@ uint8_t *loadform(FILE *f, int32_t *size) {
   return p;
 }
 
+void writeform(FILE *f, uint8_t *start, uint8_t *end) {
+  if (end < start || end - start > INT32_MAX)
+    fail("writeform: invalid memory range");
+  putbe('FORM', 32, start);
+  putbe(end - start - 8, 32, start + 4);
+  putbe('AIFC', 32, start + 8);
+  if (!fwrite(start, end - start, 1, f))
+    fail("fwrite failed");
+}
+
 struct bitwriter {
   uint8_t *p;
   int n;
@@ -109,8 +119,8 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
   return (bw.n + 7) / 8;
 }
 
-uint8_t *compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
-                  word outwordsize) {
+void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
+              word outwordsize) {
   uint8_t *p = in + 12, *q = out + 12;
   while (p < inend - 8) {
     int32_t ID = readint(p, 32), size = readint(p + 4, 32);
@@ -149,11 +159,11 @@ uint8_t *compress(uint8_t *in, uint8_t *inend, uint8_t *comm, uint8_t *out,
     }
     p += size + 8;
   }
-  return q;
+  writeform(stdout, out, q);
 }
 
 int main(int argc, char **argv) {
-  uint8_t *in, *inend, *comm, *out, *q;
+  uint8_t *in, *inend, *comm, *out;
   int32_t filetype, insize, commsize;
   word outwordsize;
   if (argc != 2) {
@@ -179,10 +189,5 @@ int main(int argc, char **argv) {
     fail("bad input file size: %d", insize);
   if (out = malloc(2 * insize), !out)
     fail("malloc output failed");
-  q = compress(in, inend, comm, out, outwordsize);
-  putbe('FORM', 32, out);
-  putbe(q - out - 8, 32, out + 4);
-  putbe('AIFC', 32, out + 8);
-  if (!fwrite(out, q - out, 1, stdout))
-    fail("fwrite failed");
+  compress(in, inend, comm, out, outwordsize);
 }
