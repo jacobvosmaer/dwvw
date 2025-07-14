@@ -62,24 +62,27 @@ void writeform(FILE *f, uint8_t *start, uint8_t *end) {
 
 struct bitwriter {
   uint8_t *p;
-  int n;
+  int n, size;
 };
 
-void putbit(struct bitwriter *bw, int bit) {
+void putbit(struct bitwriter *bw, int value) {
   int byte = bw->n / 8, shift = 7 - bw->n % 8;
-  if (shift == 7)
-    bw->p[byte] = 0;
-  bw->p[byte] |= bit << shift;
-  bw->n++;
+  if (byte < bw->size) {
+    if (shift == 7)
+      bw->p[byte] = 0;
+    bw->p[byte] |= value << shift;
+    bw->n++;
+  }
 }
 
 int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
-               uint8_t *output, word outwordsize) {
+               uint8_t *output, uint8_t *outmax, word outwordsize) {
   int j;
   word lastsample = 0, lastdeltawidth = 0,
        deltarange = bit(outwordsize - 1) - 1;
   struct bitwriter bw = {0};
   bw.p = output;
+  bw.size = outmax - output;
   for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
     word delta, sample = readint(input, inwordsize);
@@ -161,7 +164,9 @@ void compress(uint8_t *in, uint8_t *inend, uint8_t *comm, FILE *f,
       q += 16;
       for (i = 0; i < nchannels; i++) {
         q += encodedwvw(p + 16 + i * inwordsize / 8, nsamples, inwordsize,
-                        nchannels, q, outwordsize);
+                        nchannels, q, out + outmax, outwordsize);
+        if (q - out >= outmax)
+          fail("write overflow");
         q += (q - ssnd) & 1;
       }
       putbe('SSND', 32, ssnd);
