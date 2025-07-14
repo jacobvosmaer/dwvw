@@ -221,7 +221,7 @@ struct bitreader {
   int n, size;
 };
 
-word nextbit(struct bitreader *br) {
+word getbit(struct bitreader *br) {
   word b = 0;
   if (br->n / 8 < br->size) {
     b = (br->data[br->n / 8] & bit(7 - (br->n % 8))) > 0;
@@ -242,10 +242,10 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
     word dwm = 0; /* "delta width modifier" */
     /* Dwm is encoded in unary as a string of zeroes followed by a stop bit and
      * a sign bit. */
-    while (dwm < inwordsize / 2 && !nextbit(&br))
+    while (dwm < inwordsize / 2 && !getbit(&br))
       dwm++;
     if (dwm) { /* deltawidth is changing */
-      dwm *= nextbit(&br) ? -1 : 1;
+      dwm *= getbit(&br) ? -1 : 1;
       deltawidth += dwm;
       /* Deltawidth wraps around. This allows the encoding to minimize the
        * absolute value of dwm, which matters because dwm is encoded in unary.
@@ -259,8 +259,8 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
       word i, delta;
       /* Start iteration from 1 because the leading 1 of delta is implied */
       for (i = 1, delta = 1; i < deltawidth; i++)
-        delta = (delta << 1) | nextbit(&br);
-      delta *= nextbit(&br) ? -1 : 1;
+        delta = (delta << 1) | getbit(&br);
+      delta *= getbit(&br) ? -1 : 1;
       /* The lowest possible value for delta at this point is -(1 << (inwordsize
        * -1)). So if inwordsize is 8, the lowest possible value is -127. In 2's
        * complement we must also be able to represent -128. To account for this
@@ -268,7 +268,7 @@ int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
        * needed. So -126 is 1111110 1 (no extra bit), -127 is 1111111 1 0 and
        * -128 is 1111111 1 1. */
       if (delta == 1 - bit(inwordsize - 1))
-        delta -= nextbit(&br);
+        delta -= getbit(&br);
       if (DEBUG > 1)
         fprintf(stderr, "delta=%lld\n", delta);
       sample += delta;
