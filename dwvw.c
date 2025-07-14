@@ -373,12 +373,17 @@ int main(int argc, char **argv) {
   uint8_t *in, *inend;
   int32_t filetype, insize;
   struct comm cm;
-  if (argc != 2 ||
+  FILE *fin, *fout;
+  if (argc != 4 ||
       (strcmp(argv[1], "compress") && strcmp(argv[1], "decompress"))) {
-    fputs("Usage: dwvw compress|decompress\n", stderr);
+    fputs("Usage: dwvw compress|decompress INFILE OUTFILE\n", stderr);
     exit(1);
   }
-  in = loadform(stdin, &insize);
+  if (fin = fopen(argv[2], "rb"), !fin)
+    fail("failed to open %s", argv[2]);
+  if (fout = fopen(argv[3], "wb"), !fout)
+    fail("failed to open %s", argv[3]);
+  in = loadform(fin, &insize);
   inend = in + insize;
   filetype = getint(in + 8, 32);
   if (filetype != 'AIFF' && filetype != 'AIFC')
@@ -387,7 +392,7 @@ int main(int argc, char **argv) {
     fail("zero chunk ID found");
   cm = loadcomm(in, inend, filetype);
   if (!strcmp(argv[1], "compress"))
-    compress(in, inend, cm, stdout, COMPRESSED_WORD_SIZE);
+    compress(in, inend, cm, fout, COMPRESSED_WORD_SIZE);
   else
-    decompress(in, inend, cm, stdout);
+    decompress(in, inend, cm, fout);
 }
