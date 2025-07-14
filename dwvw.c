@@ -54,8 +54,8 @@ int64_t getint(unsigned char *p, int width) {
   return x;
 }
 
-int putint(word x, word wordsize, unsigned char *p) {
-  word shift;
+int putint(int64_t x, int64_t wordsize, unsigned char *p) {
+  int64_t shift;
   if (x < 0)
     x += bit(wordsize);
   for (shift = wordsize - 8; shift >= 0; shift -= 8)
