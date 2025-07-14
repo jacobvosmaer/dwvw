@@ -124,13 +124,17 @@ struct comm {
   uint32_t nsamples;
   int16_t wordsize;
   int32_t compressiontype;
+  char compressiontypestring[4];
 };
 
-struct comm loadcomm(uint8_t *comm) {
+struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
+  uint8_t *comm;
   struct comm cm = {0};
+  if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
+    fail("cannot find COMM chunk");
   cm.size = readint(comm + 4, 32);
-  if (cm.size < 18)
-    fail("invalid comm size: %d", cm.size);
+  if (cm.size < (filetype == 'AIFC' ? 22 : 18))
+    fail("COMM chunk too small: %d", cm.size);
   cm.nchannels = readint(comm + 8, 16);
   if (cm.nchannels < 1)
     fail("invalid number of channels: %d", cm.nchannels);
@@ -138,8 +142,10 @@ struct comm loadcomm(uint8_t *comm) {
   cm.wordsize = readint(comm + 14, 16);
   if (cm.wordsize < 1 || cm.wordsize > 32)
     fail("invalid wordsize: %d", cm.wordsize);
-  if (cm.size >= 22)
+  if (cm.size >= 22) {
     cm.compressiontype = readint(comm + 8 + 18, 32);
+    memmove(&cm.compressiontypestring, comm + 8 + 18, 4);
+  }
   return cm;
 }
 
@@ -159,13 +165,13 @@ void putbit(struct bitwriter *bw, int value) {
 }
 
 int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
-               uint8_t *output, uint8_t *outmax, word outwordsize) {
+               uint8_t *output, uint8_t *outputend, word outwordsize) {
   int j;
   word lastsample = 0, lastdeltawidth = 0,
        deltarange = bit(outwordsize - 1) - 1;
   struct bitwriter bw = {0};
   bw.p = output;
-  bw.size = outmax - output;
+  bw.size = outputend - output;
   for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
     word delta, sample = readint(input, inwordsize);
@@ -310,15 +316,13 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
               word outwordsize) {
   uint8_t *p, *q, *out;
   int outmax;
-  int16_t inwordsize = comm.wordsize;
   if (readint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
-    fail("unsupported input AIFC compression format: %c%c%c%c",
-         comm.compressiontype >> 24, comm.compressiontype >> 16,
-         comm.compressiontype >> 8, comm.compressiontype);
-  outmax =
-      (inend - in) * 2 *
-      (outwordsize > inwordsize ? (outwordsize + inwordsize - 1) / inwordsize
-                                : 1);
+    fail("unsupported input AIFC compression format: 4.4s",
+         comm.compressiontypestring);
+  outmax = (inend - in) * 2 *
+           (outwordsize > comm.wordsize
+                ? (outwordsize + comm.wordsize - 1) / comm.wordsize
+                : 1);
   if (out = malloc(outmax), !out)
     fail("malloc output failed");
   p = in + 12;
@@ -336,13 +340,12 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
       q += 18 + 36 + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q;
-      int16_t nchannels = comm.nchannels;
-      uint32_t nsamples = comm.nsamples;
       int i;
       q += 16;
-      for (i = 0; i < nchannels; i++) {
-        q += encodedwvw(p + 16 + i * inwordsize / 8, nsamples, inwordsize,
-                        nchannels, q, out + outmax, outwordsize);
+      for (i = 0; i < comm.nchannels; i++) {
+        q += encodedwvw(p + 16 + i * comm.wordsize / 8, comm.nsamples,
+                        comm.wordsize, comm.nchannels, q, out + outmax,
+                        outwordsize);
         if (q - out >= outmax)
           fail("write overflow");
         q += (q - ssnd) & 1;
@@ -361,21 +364,15 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
 }
 
 void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
-  int16_t inwordsize = comm.wordsize, outwordsize = 8 * ((inwordsize + 7) / 8),
-          nchannels = comm.nchannels;
-  uint32_t nsamples = comm.nsamples;
+  int16_t outwordsize = 8 * ((comm.wordsize + 7) / 8);
   uint8_t *p, *q, *out;
-  int outsize;
-
+  int outmax;
   if (readint(in + 8, 32) != 'AIFC' || comm.compressiontype != 'DWVW')
-    fail("unsupported input AIFC compression format: %c%c%c%c",
-         comm.compressiontype >> 24, comm.compressiontype >> 16,
-         comm.compressiontype >> 8, comm.compressiontype);
-
-  outsize = inend - in + nchannels * nsamples * (outwordsize / 8);
-  if (out = malloc(outsize), !out)
+    fail("unsupported input AIFC compression format: %4.4s",
+         comm.compressiontypestring);
+  outmax = inend - in + comm.nchannels * comm.nsamples * (outwordsize / 8);
+  if (out = malloc(outmax), !out)
     fail("malloc out failed");
-
   p = in + 12;
   q = out + 12;
   while (p < inend - 8) {
@@ -391,13 +388,14 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q, *pp = p + 16;
       q += 16;
-      for (i = 0; i < nchannels; i++) {
-        pp += decodedwvw(pp, p + 8 + readint(p + 4, 32), nsamples, inwordsize,
-                         nchannels, q + i * (outwordsize / 8), outwordsize);
+      for (i = 0; i < comm.nchannels; i++) {
+        pp += decodedwvw(pp, p + 8 + readint(p + 4, 32), comm.nsamples,
+                         comm.wordsize, comm.nchannels,
+                         q + i * (outwordsize / 8), outwordsize);
         if ((pp - p) & 1)
           pp++;
       }
-      q += nchannels * nsamples * (outwordsize / 8);
+      q += comm.nchannels * comm.nsamples * (outwordsize / 8);
       putbe('SSND', 32, ssnd);
       putbe(q - ssnd - 8, 32, ssnd + 4);
       putbe(0, 32, ssnd + 8);
@@ -412,8 +410,8 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
 }
 
 int main(int argc, char **argv) {
-  uint8_t *in, *inend, *comm;
-  int32_t filetype, insize, commsize;
+  uint8_t *in, *inend;
+  int32_t filetype, insize;
   struct comm cm;
   if (argc != 2 ||
       (strcmp(argv[1], "compress") && strcmp(argv[1], "decompress"))) {
@@ -427,12 +425,7 @@ int main(int argc, char **argv) {
     fail("invalid file type: %4.4s", in + 8);
   if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
     fail("zero chunk ID found");
-  if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
-    fail("cannot find COMM chunk");
-  if (commsize = readint(comm + 4, 32),
-      commsize < (filetype == 'AIFC' ? 22 : 18))
-    fail("COMM chunk too small: %d", commsize);
-  cm = loadcomm(comm);
+  cm = loadcomm(in, inend, filetype);
   if (!strcmp(argv[1], "compress"))
     compress(in, inend, cm, stdout, COMPRESSED_WORD_SIZE);
   else
