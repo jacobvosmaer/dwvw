@@ -452,4 +452,5 @@ int main(int argc, char **argv) {
     compress(in, inend, comm, fout, COMPRESSED_WORD_SIZE);
   else
     decompress(in, inend, comm, fout);
+  return 0;
 }
