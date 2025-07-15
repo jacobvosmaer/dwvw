@@ -23,6 +23,14 @@ ftp.t0.or.at.
 #define DEBUG 0
 #endif
 
+#ifndef COMPRESSED_WORD_SIZE
+#define COMPRESSED_WORD_SIZE 12
+#endif
+
+#ifndef MAX_CHANNELS
+#define MAX_CHANNELS 2
+#endif
+
 void fail(char *fmt, ...) {
   va_list ap;
   if (DEBUG)
@@ -62,10 +70,6 @@ int putint(int64_t x, int64_t wordsize, unsigned char *p) {
     *p++ = x >> shift;
   return wordsize / 8;
 }
-
-#ifndef COMPRESSED_WORD_SIZE
-#define COMPRESSED_WORD_SIZE 12
-#endif
 
 uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *p = start;
@@ -136,7 +140,7 @@ struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
   if (cm.size < (filetype == 'AIFC' ? 22 : 18))
     fail("COMM chunk too small: %d", cm.size);
   cm.nchannels = getint(comm + 8, 16);
-  if (cm.nchannels < 1)
+  if (cm.nchannels < 1 || cm.nchannels > MAX_CHANNELS)
     fail("invalid number of channels: %d", cm.nchannels);
   cm.nsamples = getuint(comm + 10, 32);
   cm.wordsize = getint(comm + 14, 16);
