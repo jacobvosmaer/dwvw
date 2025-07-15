@@ -31,6 +31,14 @@ ftp.t0.or.at.
 #define MAX_CHANNELS 2
 #endif
 
+#define FORM ('F' << 24 | 'O' << 16 | 'R' << 8 | 'M')
+#define AIFF ('A' << 24 | 'I' << 16 | 'F' << 8 | 'F')
+#define AIFC ('A' << 24 | 'I' << 16 | 'F' << 8 | 'C')
+#define COMM ('C' << 24 | 'O' << 16 | 'M' << 8 | 'M')
+#define NONE ('N' << 24 | 'O' << 16 | 'N' << 8 | 'E')
+#define DWVW ('D' << 24 | 'W' << 16 | 'V' << 8 | 'W')
+#define SSND ('S' << 24 | 'S' << 16 | 'N' << 8 | 'D')
+
 #if __clang__ || __GNUC__
 void fail(char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #endif
@@ -102,7 +110,7 @@ uint8_t *loadform(FILE *f, int32_t *size) {
   int32_t formsize;
   if (!fread(buf, sizeof(buf), 1, f))
     fail("read AIFF header: short read");
-  if (getint(buf, 32) != 'FORM')
+  if (getint(buf, 32) != FORM)
     fail("missing FORM");
   formsize = getint(buf + 4, 32);
   if (formsize < 4 || formsize > INT32_MAX - 8)
@@ -119,9 +127,9 @@ uint8_t *loadform(FILE *f, int32_t *size) {
 void writeform(FILE *f, uint8_t *start, uint8_t *end) {
   if (end < start || end - start > INT32_MAX)
     fail("writeform: invalid memory range");
-  putint('FORM', 32, start);
+  putint(FORM, 32, start);
   putint(end - start - 8, 32, start + 4);
-  putint('AIFC', 32, start + 8);
+  putint(AIFC, 32, start + 8);
   if (!fwrite(start, end - start, 1, f))
     fail("fwrite failed");
 }
@@ -138,10 +146,10 @@ struct comm {
 struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
   uint8_t *comm;
   struct comm cm = {0};
-  if (comm = finduniquechunk('COMM', in + 12, inend), comm == inend)
+  if (comm = finduniquechunk(COMM, in + 12, inend), comm == inend)
     fail("cannot find COMM chunk");
   cm.size = getint(comm + 4, 32);
-  if (cm.size < (filetype == 'AIFC' ? 22 : 18))
+  if (cm.size < (filetype == AIFC ? 22 : 18))
     fail("COMM chunk too small: %d", cm.size);
   cm.nchannels = getint(comm + 8, 16);
   if (cm.nchannels < 1 || cm.nchannels > MAX_CHANNELS)
@@ -150,7 +158,7 @@ struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
   cm.wordsize = getint(comm + 14, 16);
   if (cm.wordsize < 1 || cm.wordsize > 32)
     fail("invalid wordsize: %d", cm.wordsize);
-  if (filetype == 'AIFC') {
+  if (filetype == AIFC) {
     cm.compressiontype = getint(comm + 8 + 18, 32);
     memmove(&cm.compressiontypestring, comm + 8 + 18, 4);
   }
@@ -306,7 +314,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
   int32_t outmax, maxframesize;
 
   assert(in < inend - 8);
-  if (getint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
+  if (getint(in + 8, 32) == AIFC && comm.compressiontype != NONE)
     fail("unsupported input AIFC compression format: %4.4s",
          comm.compressiontypestring);
 
@@ -326,7 +334,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
   q = out + 12;
   while (p < inend - 8) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
-    if (ID == 'COMM') {
+    if (ID == COMM) {
       uint8_t compressinfo[] = "DWVWxDelta With Variable Word Width\x00";
       int compressoff = 18, compressinfosize = sizeof(compressinfo) - 1;
       memmove(q, p, compressoff + 8);
@@ -336,7 +344,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
           0x1f; /* not allowed to put \x1f in string literal?? */
       putint(compressoff + compressinfosize, 32, q + 4);
       q += compressoff + compressinfosize + 8;
-    } else if (ID == 'SSND') {
+    } else if (ID == SSND) {
       uint8_t *ssnd = q;
       int i;
       q += 16;
@@ -348,7 +356,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
           fail("bit write overflow");
         q += (q - ssnd) & 1;
       }
-      putint('SSND', 32, ssnd);
+      putint(SSND, 32, ssnd);
       putint(q - ssnd - 8, 32, ssnd + 4);
       putint(0, 32, ssnd + 8);
       putint(0, 32, ssnd + 12);
@@ -368,9 +376,9 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   int32_t outmax, framesize;
 
   assert(in < inend - 8);
-  if (getint(in + 8, 32) != 'AIFC')
+  if (getint(in + 8, 32) != AIFC)
     fail("input file is not AIFC");
-  if (comm.compressiontype != 'DWVW')
+  if (comm.compressiontype != DWVW)
     fail("unsupported input AIFC compression format: %4.4s",
          comm.compressiontypestring);
 
@@ -387,7 +395,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   q = out + 12;
   while (p < inend - 8) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
-    if (ID == 'COMM') {
+    if (ID == COMM) {
       uint8_t compressinfo[] = "NONE\x0enot compressed\x00";
       int compressoff = 18 + 8, compressinfosize = sizeof(compressinfo) - 1;
       memmove(q, p, compressoff);
@@ -395,7 +403,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       memmove(q + compressoff, compressinfo, compressinfosize);
       putint(18 + compressinfosize, 32, q + 4);
       q += 18 + compressinfosize + 8;
-    } else if (ID == 'SSND') {
+    } else if (ID == SSND) {
       int i;
       uint8_t *ssnd = q, *dwvwstart = p + 16, *dwvwend = p + 8 + size;
       q += 16;
@@ -408,7 +416,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
         dwvwstart += (dwvwstart - p) & 1;
         q += comm.nsamples * (outwordsize / 8);
       }
-      putint('SSND', 32, ssnd);
+      putint(SSND, 32, ssnd);
       putint(q - ssnd - 8, 32, ssnd + 4);
       putint(0, 32, ssnd + 8);
       putint(0, 32, ssnd + 12);
@@ -442,7 +450,7 @@ int main(int argc, char **argv) {
   in = loadform(fin, &insize);
   inend = in + insize;
   filetype = getint(in + 8, 32);
-  if (filetype != 'AIFF' && filetype != 'AIFC')
+  if (filetype != AIFF && filetype != AIFC)
     fail("invalid file type: %4.4s", in + 8);
   if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
     fail("zero chunk ID found");
