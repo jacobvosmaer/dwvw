@@ -31,6 +31,10 @@ ftp.t0.or.at.
 #define MAX_CHANNELS 2
 #endif
 
+#if __clang__ || __GNUC__
+void fail(char *fmt, ...) __attribute__((format(printf, 1, 2)));
+#endif
+
 void fail(char *fmt, ...) {
   va_list ap;
   if (DEBUG)
