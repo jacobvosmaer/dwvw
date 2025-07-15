@@ -55,8 +55,7 @@ void fail(char *fmt, ...) {
   exit(1);
 }
 
-typedef int64_t word;
-#define bit(shift) ((word)1 << (shift))
+#define bit(shift) ((int64_t)1 << (shift))
 
 int64_t getuint(uint8_t *p, int width) {
   int i;
@@ -180,23 +179,25 @@ void putbit(struct bitwriter *bw, int value) {
   }
 }
 
-word convertbitdepth(word sample, word inwordsize, word outwordsize) {
+int64_t convertbitdepth(int64_t sample, int64_t inwordsize,
+                        int64_t outwordsize) {
   if (outwordsize > inwordsize)
     return sample << (outwordsize - inwordsize);
   else /* TODO use dithering? */
     return sample >> (inwordsize - outwordsize);
 }
 
-int encodedwvw(uint8_t *input, uint32_t nsamples, word inwordsize, int stride,
-               uint8_t *output, uint8_t *outputend, word outwordsize) {
+int encodedwvw(uint8_t *input, uint32_t nsamples, int64_t inwordsize,
+               int stride, uint8_t *output, uint8_t *outputend,
+               int64_t outwordsize) {
   uint32_t j;
-  word lastsample = 0, lastdeltawidth = 0;
+  int64_t lastsample = 0, lastdeltawidth = 0;
   struct bitwriter bw = {0};
   bw.data = output;
   bw.size = outputend - output;
   for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
-    word delta, sample;
+    int64_t delta, sample;
 
     sample =
         convertbitdepth(getint(input, inwordsize), inwordsize, outwordsize);
@@ -251,8 +252,8 @@ struct bitreader {
   int32_t n, size;
 };
 
-word getbit(struct bitreader *br) {
-  word b = 0;
+int64_t getbit(struct bitreader *br) {
+  int64_t b = 0;
   if (br->n / 8 < br->size) {
     b = (br->data[br->n / 8] & bit(7 - (br->n % 8))) > 0;
     br->n++;
@@ -261,14 +262,15 @@ word getbit(struct bitreader *br) {
 }
 
 int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
-               word inwordsize, int stride, uint8_t *output, word outwordsize) {
+               int64_t inwordsize, int stride, uint8_t *output,
+               int64_t outwordsize) {
   struct bitreader br = {0};
-  word deltawidth = 0, sample = 0;
+  int64_t deltawidth = 0, sample = 0;
   uint32_t j;
   br.data = input;
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
-    word i, delta, dwm; /* "delta width modifier" */
+    int64_t i, delta, dwm; /* "delta width modifier" */
 
     dwm = 0;
     while (dwm < inwordsize / 2 && !getbit(&br))
@@ -309,7 +311,7 @@ int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
 }
 
 void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
-              word outwordsize) {
+              int64_t outwordsize) {
   uint8_t *p, *q, *out;
   int32_t outmax, maxframesize;
 
