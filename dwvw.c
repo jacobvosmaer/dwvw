@@ -299,18 +299,19 @@ int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
 void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
               word outwordsize) {
   uint8_t *p, *q, *out;
-  int32_t outmax, maxsamplesize;
+  int32_t outmax, maxframesize;
 
   assert(in < inend - 8);
   if (getint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
     fail("unsupported input AIFC compression format: 4.4s",
          comm.compressiontypestring);
 
-  /* Upper bound for DWVW encoded sample, in bytes */
-  maxsamplesize = ((outwordsize + outwordsize / 2 + 1) + 7) / 8;
-  assert(comm.nsamples < INT32_MAX / maxsamplesize);
+  /* Upper bound for nchannels DWVW encoded sample, in bytes */
+  maxframesize =
+      comm.nchannels * (((outwordsize + outwordsize / 2 + 1) + 7) / 8);
+  assert(comm.nsamples < INT32_MAX / maxframesize);
   /* Enough space for the sample data */
-  outmax = comm.nsamples * maxsamplesize;
+  outmax = comm.nsamples * maxframesize;
   assert(inend - in < INT32_MAX - outmax);
   /* Enough space for the rest of the AIFF data */
   outmax += inend - in;
@@ -323,14 +324,14 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     if (ID == 'COMM') {
       uint8_t compressinfo[] = "DWVWxDelta With Variable Word Width\x00";
-      int compressoff = 18 + 8, compressinfosize = sizeof(compressinfo) - 1;
-      memmove(q, p, compressoff);
+      int compressoff = 18, compressinfosize = sizeof(compressinfo) - 1;
+      memmove(q, p, compressoff + 8);
       putint(outwordsize, 16, q + 14);
-      memmove(q + compressoff, compressinfo, compressinfosize);
+      memmove(q + compressoff + 8, compressinfo, compressinfosize);
       q[compressoff + 4] =
           0x1f; /* not allowed to put \x1f in string literal?? */
-      putint(18 + compressinfosize, 32, q + 4);
-      q += 18 + sizeof(compressinfo) + 8;
+      putint(compressoff + compressinfosize, 32, q + 4);
+      q += compressoff + compressinfosize + 8;
     } else if (ID == 'SSND') {
       uint8_t *ssnd = q;
       int i;
