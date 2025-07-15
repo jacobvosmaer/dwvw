@@ -168,30 +168,40 @@ void putbit(struct bitwriter *bw, int value) {
   }
 }
 
+word convertbitdepth(word sample, word inwordsize, word outwordsize) {
+  if (outwordsize > inwordsize)
+    return sample << (outwordsize - inwordsize);
+  else /* TODO use dithering? */
+    return sample >> (inwordsize - outwordsize);
+}
+
 int encodedwvw(uint8_t *input, uint32_t nsamples, word inwordsize, int stride,
                uint8_t *output, uint8_t *outputend, word outwordsize) {
   uint32_t j;
-  word lastsample = 0, lastdeltawidth = 0,
-       deltarange = bit(outwordsize - 1) - 1;
+  word lastsample = 0, lastdeltawidth = 0;
   struct bitwriter bw = {0};
   bw.data = output;
   bw.size = outputend - output;
   for (j = 0; j < nsamples; j++) {
     int dwm, dwmsign, deltawidth, deltasign, i;
-    word delta, sample = getint(input, inwordsize);
+    word delta, sample;
+
+    sample =
+        convertbitdepth(getint(input, inwordsize), inwordsize, outwordsize);
     input += stride * inwordsize / 8;
-    if (inwordsize < outwordsize)
-      sample <<= outwordsize - inwordsize;
-    else
-      sample >>= inwordsize - outwordsize; /* TODO dither? */
+
     delta = sample - lastsample;
     lastsample = sample;
+    /* DWVW stores outwordsize bit inter-sample differences as an (outwordsize -
+     * 1) bit absolute value plus a sign bit. To make that fit the delta must
+     * wrap around. */
     if (delta >= bit(outwordsize - 1))
       delta -= bit(outwordsize);
     else if (delta < -bit(outwordsize - 1))
       delta += bit(outwordsize);
     if (DEBUG > 1)
       fprintf(stderr, "delta=%lld\n", delta);
+
     deltasign = delta < 0;
     delta = deltasign ? -delta : delta;
     for (deltawidth = 0; (1 << deltawidth) <= delta; deltawidth++)
@@ -202,21 +212,24 @@ int encodedwvw(uint8_t *input, uint32_t nsamples, word inwordsize, int stride,
       dwm -= outwordsize;
     else if (dwm < -outwordsize / 2)
       dwm += outwordsize;
+
     dwmsign = dwm < 0;
     dwm = dwmsign ? -dwm : dwm;
-    for (i = 0; i < dwm; i++) /* Dwm in unary */
+    for (i = 0; i < dwm; i++) /* Store dwm in unary */
       putbit(&bw, 0);
     if (dwm < outwordsize / 2) /* Dwm stop bit */
       putbit(&bw, 1);
     if (dwm)
       putbit(&bw, dwmsign);
-    for (i = 1; i < deltawidth; i++) /* Delta in binary */
+
+    for (i = 1; i < deltawidth; i++) /* Store delta in binary */
       putbit(&bw, (delta & bit(deltawidth - 1 - i)) > 0);
-    if (deltawidth) /* Omit sign bit if delta is 0 */
+    if (delta)
       putbit(&bw, deltasign);
-    /* Extra bit for otherwise unrepresentable value -(1 << (outwordsize -1)) */
-    if (deltasign && delta >= deltarange)
-      putbit(&bw, delta > deltarange);
+    /* Extra bit for otherwise unrepresentable value -(1 << (outwordsize - 1))
+     */
+    if (deltasign && delta >= bit(outwordsize - 1) - 1)
+      putbit(&bw, delta == bit(outwordsize - 1));
   }
   return (bw.n + 7) / 8;
 }
@@ -243,33 +256,41 @@ int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
   br.data = input;
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
-    word i, delta = 0, dwm = 0; /* "delta width modifier" */
-    /* Dwm is encoded in unary as a string of zeroes */
+    word i, delta, dwm; /* "delta width modifier" */
+
+    dwm = 0;
     while (dwm < inwordsize / 2 && !getbit(&br))
       dwm++;
     if (dwm) /* Dwm sign omitted if dwm is zero */
       dwm = getbit(&br) ? -dwm : dwm;
+
     deltawidth += dwm;
     if (deltawidth >= inwordsize)
       deltawidth -= inwordsize;
     else if (deltawidth < 0)
       deltawidth += inwordsize;
-    /* Start iteration from 1 because the leading 1 of delta is implied */
-    for (i = 1, delta = 1; i < deltawidth; i++)
-      delta = (delta << 1) | getbit(&br);
-    if (deltawidth) /* Delta sign omitted if delta is zero */
+
+    delta = 0;
+    if (deltawidth) {
+      delta = 1;
+      for (i = 1; i < deltawidth; i++)
+        delta = (delta << 1) | getbit(&br);
       delta = getbit(&br) ? -delta : delta;
-    /* Trick to represent -(1 << (inwordsize - 1)) */
-    if (delta == 1 - bit(inwordsize - 1))
-      delta -= getbit(&br);
+      /* Trick to represent -(1 << (inwordsize - 1)) */
+      if (delta == 1 - bit(inwordsize - 1))
+        delta -= getbit(&br);
+    }
     if (DEBUG > 1)
       fprintf(stderr, "delta=%lld\n", delta);
+
     sample += delta;
     if (sample >= bit(inwordsize - 1))
       sample -= bit(inwordsize);
     else if (sample < -bit(inwordsize - 1))
       sample += bit(inwordsize);
-    output += putint(sample << (outwordsize - inwordsize), outwordsize, output);
+
+    output += putint(convertbitdepth(sample, inwordsize, outwordsize),
+                     outwordsize, output);
     output += (stride - 1) * outwordsize / 8;
   }
   return (br.n + 7) / 8;
