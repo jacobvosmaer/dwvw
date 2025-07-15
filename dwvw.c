@@ -142,7 +142,7 @@ struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
   cm.wordsize = getint(comm + 14, 16);
   if (cm.wordsize < 1 || cm.wordsize > 32)
     fail("invalid wordsize: %d", cm.wordsize);
-  if (cm.size >= 22) {
+  if (filetype == 'AIFC') {
     cm.compressiontype = getint(comm + 8 + 18, 32);
     memmove(&cm.compressiontypestring, comm + 8 + 18, 4);
   }
