@@ -67,9 +67,9 @@ int64_t getuint(uint8_t *p, int width) {
 }
 
 int64_t getint(uint8_t *p, int width) {
-  int64_t x = getuint(p, width), sup = (int64_t)1 << (width - 1);
-  if (x >= sup)
-    x -= (int64_t)1 << width;
+  int64_t x = getuint(p, width);
+  if (x >= bit(width - 1))
+    x -= bit(width);
   return x;
 }
 
