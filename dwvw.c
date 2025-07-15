@@ -299,16 +299,24 @@ int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
 void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
               word outwordsize) {
   uint8_t *p, *q, *out;
-  int outmax;
+  int32_t outmax, maxsamplesize;
+
+  assert(in < inend - 8);
   if (getint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
     fail("unsupported input AIFC compression format: 4.4s",
          comm.compressiontypestring);
-  outmax = (inend - in) * 2 *
-           (outwordsize > comm.wordsize
-                ? (outwordsize + comm.wordsize - 1) / comm.wordsize
-                : 1);
+
+  /* Upper bound for DWVW encoded sample, in bytes */
+  maxsamplesize = ((outwordsize + outwordsize / 2 + 1) + 7) / 8;
+  assert(comm.nsamples < INT32_MAX / maxsamplesize);
+  /* Enough space for the sample data */
+  outmax = comm.nsamples * maxsamplesize;
+  assert(inend - in < INT32_MAX - outmax);
+  /* Enough space for the rest of the AIFF data */
+  outmax += inend - in;
   if (out = malloc(outmax), !out)
     fail("malloc output failed");
+
   p = in + 12;
   q = out + 12;
   while (p < inend - 8) {
@@ -332,7 +340,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
                         comm.wordsize, comm.nchannels, q, out + outmax,
                         outwordsize);
         if (q - out >= outmax)
-          fail("write overflow");
+          fail("bit write overflow");
         q += (q - ssnd) & 1;
       }
       putint('SSND', 32, ssnd);
@@ -345,24 +353,35 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
     }
     p += size + 8;
   }
+
   writeform(f, out, q);
 }
 
 void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   int16_t outwordsize = 8 * ((comm.wordsize + 7) / 8);
   uint8_t *p, *q, *out;
-  int outmax;
-  if (getint(in + 8, 32) != 'AIFC' || comm.compressiontype != 'DWVW')
+  int32_t outmax, framesize;
+
+  assert(in < inend - 8);
+  if (getint(in + 8, 32) != 'AIFC')
+    fail("input file is not AIFC");
+  if (comm.compressiontype != 'DWVW')
     fail("unsupported input AIFC compression format: %4.4s",
          comm.compressiontypestring);
-  outmax = inend - in + comm.nchannels * comm.nsamples * (outwordsize / 8);
+
+  framesize = comm.nchannels * outwordsize / 8;
+  assert(comm.nsamples < INT32_MAX / framesize);
+  /* Enough room for decompressed audio data */
+  outmax = comm.nsamples * framesize;
+  assert(inend - in < INT32_MAX - outmax);
+  outmax += inend - in; /* Enough room for rest of AIFF data */
   if (out = malloc(outmax), !out)
     fail("malloc out failed");
+
   p = in + 12;
   q = out + 12;
   while (p < inend - 8) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
-    int i;
     if (ID == 'COMM') {
       uint8_t compressinfo[] = "NONE\x0enot compressed\x00";
       int compressoff = 18 + 8, compressinfosize = sizeof(compressinfo) - 1;
@@ -372,6 +391,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       putint(18 + compressinfosize, 32, q + 4);
       q += 18 + compressinfosize + 8;
     } else if (ID == 'SSND') {
+      int i;
       uint8_t *ssnd = q, *dwvwstart = p + 16, *dwvwend = p + 8 + size;
       q += 16;
       for (i = 0; i < comm.nchannels; i++) {
@@ -393,23 +413,27 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
     }
     p += size + 8;
   }
+
   writeform(f, out, q);
 }
 
 int main(int argc, char **argv) {
   uint8_t *in, *inend;
   int32_t filetype, insize;
-  struct comm cm;
+  struct comm comm;
   FILE *fin, *fout;
+
   if (argc != 4 ||
       (strcmp(argv[1], "compress") && strcmp(argv[1], "decompress"))) {
     fputs("Usage: dwvw compress|decompress INFILE OUTFILE\n", stderr);
     exit(1);
   }
+
   if (fin = fopen(argv[2], "rb"), !fin)
     fail("failed to open %s", argv[2]);
   if (fout = fopen(argv[3], "wb"), !fout)
     fail("failed to open %s", argv[3]);
+
   in = loadform(fin, &insize);
   inend = in + insize;
   filetype = getint(in + 8, 32);
@@ -417,9 +441,10 @@ int main(int argc, char **argv) {
     fail("invalid file type: %4.4s", in + 8);
   if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
     fail("zero chunk ID found");
-  cm = loadcomm(in, inend, filetype);
+  comm = loadcomm(in, inend, filetype);
+
   if (!strcmp(argv[1], "compress"))
-    compress(in, inend, cm, fout, COMPRESSED_WORD_SIZE);
+    compress(in, inend, comm, fout, COMPRESSED_WORD_SIZE);
   else
-    decompress(in, inend, cm, fout);
+    decompress(in, inend, comm, fout);
 }
