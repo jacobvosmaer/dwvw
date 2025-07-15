@@ -303,7 +303,7 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
 
   assert(in < inend - 8);
   if (getint(in + 8, 32) == 'AIFC' && comm.compressiontype != 'NONE')
-    fail("unsupported input AIFC compression format: 4.4s",
+    fail("unsupported input AIFC compression format: %4.4s",
          comm.compressiontypestring);
 
   /* Upper bound for nchannels DWVW encoded sample, in bytes */
