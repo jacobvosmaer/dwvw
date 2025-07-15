@@ -7,6 +7,8 @@ Development.
 
 DWVW is a lossless audio compression codec encapsulated in the AIFC audio file format.
 
+If you're looking at a DWVW implementation to use in your own program you might want to look at [libsndfile](https://github.com/libsndfile/libsndfile) instead.
+
 ## Usage
 
 ```
@@ -23,9 +25,7 @@ The `compress` subcommand generates 12-bit audio. This is the native audio bit d
 
 The `decompress` subcommand rounds the input bit depth up to the nearest multiple of 8. That means that DWVW 12-bit audio comes out as 16-bit AIFF.
 
-## Robustness
 
-This program is meant to be used with files from trusted sources. It is written in C and it is likely that malicious input files can crash it or worse. This is not a problem for normal use, just don't start a website where untrusted people can upload files that you then process with this program.
 
 
 
