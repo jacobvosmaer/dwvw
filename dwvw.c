@@ -46,7 +46,7 @@ void fail(char *fmt, ...) {
 typedef int64_t word;
 #define bit(shift) ((word)1 << (shift))
 
-int64_t getuint(unsigned char *p, int width) {
+int64_t getuint(uint8_t *p, int width) {
   int i;
   int64_t x;
   assert(width > 0 && width <= 32 && !(width % 8));
@@ -55,14 +55,14 @@ int64_t getuint(unsigned char *p, int width) {
   return x;
 }
 
-int64_t getint(unsigned char *p, int width) {
+int64_t getint(uint8_t *p, int width) {
   int64_t x = getuint(p, width), sup = (int64_t)1 << (width - 1);
   if (x >= sup)
     x -= (int64_t)1 << width;
   return x;
 }
 
-int putint(int64_t x, int64_t wordsize, unsigned char *p) {
+int putint(int64_t x, int64_t wordsize, uint8_t *p) {
   int64_t shift;
   if (x < 0)
     x += bit(wordsize);
@@ -155,7 +155,7 @@ struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
 
 struct bitwriter {
   uint8_t *data;
-  int n, size;
+  int32_t n, size;
 };
 
 void putbit(struct bitwriter *bw, int value) {
@@ -168,9 +168,9 @@ void putbit(struct bitwriter *bw, int value) {
   }
 }
 
-int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
+int encodedwvw(uint8_t *input, uint32_t nsamples, word inwordsize, int stride,
                uint8_t *output, uint8_t *outputend, word outwordsize) {
-  int j;
+  uint32_t j;
   word lastsample = 0, lastdeltawidth = 0,
        deltarange = bit(outwordsize - 1) - 1;
   struct bitwriter bw = {0};
@@ -222,8 +222,8 @@ int encodedwvw(uint8_t *input, int nsamples, word inwordsize, int stride,
 }
 
 struct bitreader {
-  unsigned char *data;
-  int n, size;
+  uint8_t *data;
+  int32_t n, size;
 };
 
 word getbit(struct bitreader *br) {
@@ -235,11 +235,11 @@ word getbit(struct bitreader *br) {
   return b;
 }
 
-int decodedwvw(uint8_t *input, uint8_t *inend, int nsamples, word inwordsize,
-               int stride, uint8_t *output, word outwordsize) {
+int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
+               word inwordsize, int stride, uint8_t *output, word outwordsize) {
   struct bitreader br = {0};
   word deltawidth = 0, sample = 0;
-  int j;
+  uint32_t j;
   br.data = input;
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
