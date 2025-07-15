@@ -73,8 +73,8 @@ int64_t getint(uint8_t *p, int width) {
   return x;
 }
 
-int putint(int64_t x, int64_t wordsize, uint8_t *p) {
-  int64_t shift;
+int putint(int64_t x, int wordsize, uint8_t *p) {
+  int shift;
   if (x < 0)
     x += bit(wordsize);
   for (shift = wordsize - 8; shift >= 0; shift -= 8)
@@ -179,19 +179,18 @@ void putbit(struct bitwriter *bw, int value) {
   }
 }
 
-int64_t convertbitdepth(int64_t sample, int64_t inwordsize,
-                        int64_t outwordsize) {
+int64_t convertbitdepth(int64_t sample, int inwordsize, int outwordsize) {
   if (outwordsize > inwordsize)
     return sample << (outwordsize - inwordsize);
   else /* TODO use dithering? */
     return sample >> (inwordsize - outwordsize);
 }
 
-int encodedwvw(uint8_t *input, uint32_t nsamples, int64_t inwordsize,
-               int stride, uint8_t *output, uint8_t *outputend,
-               int64_t outwordsize) {
+int encodedwvw(uint8_t *input, uint32_t nsamples, int inwordsize, int stride,
+               uint8_t *output, uint8_t *outputend, int outwordsize) {
   uint32_t j;
-  int64_t lastsample = 0, lastdeltawidth = 0;
+  int64_t lastsample = 0;
+  int lastdeltawidth = 0;
   struct bitwriter bw = {0};
   bw.data = output;
   bw.size = outputend - output;
@@ -262,15 +261,16 @@ int64_t getbit(struct bitreader *br) {
 }
 
 int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
-               int64_t inwordsize, int stride, uint8_t *output,
-               int64_t outwordsize) {
+               int inwordsize, int stride, uint8_t *output, int outwordsize) {
   struct bitreader br = {0};
-  int64_t deltawidth = 0, sample = 0;
+  int deltawidth = 0;
+  int64_t sample = 0;
   uint32_t j;
   br.data = input;
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
-    int64_t i, delta, dwm; /* "delta width modifier" */
+    int i, dwm; /* "delta width modifier" */
+    int64_t delta;
 
     dwm = 0;
     while (dwm < inwordsize / 2 && !getbit(&br))
@@ -310,10 +310,10 @@ int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
   return (br.n + 7) / 8;
 }
 
-void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f,
-              int64_t outwordsize) {
+void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   uint8_t *p, *q, *out;
   int32_t outmax, maxframesize;
+  int outwordsize = COMPRESSED_WORD_SIZE;
 
   assert(in < inend - 8);
   if (getint(in + 8, 32) == AIFC && comm.compressiontype != NONE)
@@ -459,7 +459,7 @@ int main(int argc, char **argv) {
   comm = loadcomm(in, inend, filetype);
 
   if (!strcmp(argv[1], "compress"))
-    compress(in, inend, comm, fout, COMPRESSED_WORD_SIZE);
+    compress(in, inend, comm, fout);
   else
     decompress(in, inend, comm, fout);
   return 0;
