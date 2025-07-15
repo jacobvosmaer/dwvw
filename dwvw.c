@@ -9,8 +9,8 @@ This decoder is based on documentation in "fmt_typh.rtf" published on
 ftp.t0.or.at.
 */
 
+#include <inttypes.h>
 #include <stdarg.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -212,7 +212,7 @@ int encodedwvw(uint8_t *input, uint32_t nsamples, word inwordsize, int stride,
     else if (delta < -bit(outwordsize - 1))
       delta += bit(outwordsize);
     if (DEBUG > 1)
-      fprintf(stderr, "delta=%lld\n", delta);
+      fprintf(stderr, "delta=%" PRId64 "\n", delta);
 
     deltasign = delta < 0;
     delta = deltasign ? -delta : delta;
@@ -293,7 +293,7 @@ int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
         delta -= getbit(&br);
     }
     if (DEBUG > 1)
-      fprintf(stderr, "delta=%lld\n", delta);
+      fprintf(stderr, "delta=%" PRId64 "\n", delta);
 
     sample += delta;
     if (sample >= bit(inwordsize - 1))
