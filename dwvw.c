@@ -11,6 +11,7 @@ ftp.t0.or.at.
 
 #include <inttypes.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +39,9 @@ ftp.t0.or.at.
 #define NONE ('N' << 24 | 'O' << 16 | 'N' << 8 | 'E')
 #define DWVW ('D' << 24 | 'W' << 16 | 'V' << 8 | 'W')
 #define SSND ('S' << 24 | 'S' << 16 | 'N' << 8 | 'D')
+
+#define CHUNK_HEADER 8
+#define FORM_HEADER 8
 
 #if __clang__ || __GNUC__
 void fail(char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -84,37 +88,38 @@ int putint(int64_t x, int wordsize, uint8_t *p) {
 
 uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *p = start;
-  while (p < end - 8) {
+  while (p < end - CHUNK_HEADER) {
     int32_t size = getint(p + 4, 32);
-    if (size < 0 || size > end - (p + 8))
+    if (size < 0 || size > end - (p + CHUNK_HEADER))
       fail("chunk %4.4s: invalid size %d", p, size);
     if (getint(p, 32) == ID)
       return p;
-    p += size + 8;
+    p += size + CHUNK_HEADER;
   }
   return end;
 }
 
 uint8_t *finduniquechunk(int32_t ID, uint8_t *start, uint8_t *end) {
-  uint8_t *chunk = findchunk(ID, start, end), *chunk2;
-  if (chunk < end)
-    if (chunk2 = findchunk(ID, chunk + 8 + getint(chunk + 4, 32), end),
-        chunk2 < end)
+  uint8_t *chunk = findchunk(ID, start, end);
+  if (chunk < end) {
+    uint8_t *chunk2, *tail = chunk + CHUNK_HEADER + getint(chunk + 4, 32);
+    if (chunk2 = findchunk(ID, tail, end), chunk2 < end)
       fail("duplicate %4.4s chunk", chunk);
+  }
   return chunk;
 }
 
 uint8_t *loadform(FILE *f, int32_t *size) {
-  uint8_t buf[8], *p;
+  uint8_t buf[FORM_HEADER], *p;
   int32_t formsize;
   if (!fread(buf, sizeof(buf), 1, f))
     fail("read AIFF header: short read");
   if (getint(buf, 32) != FORM)
     fail("missing FORM");
   formsize = getint(buf + 4, 32);
-  if (formsize < 4 || formsize > INT32_MAX - 8)
+  if (formsize < 4 || formsize > INT32_MAX - FORM_HEADER)
     fail("invalid FORM size: %d", formsize);
-  *size = formsize + 8;
+  *size = formsize + FORM_HEADER;
   if (p = malloc(*size), !p)
     fail("malloc input failed");
   memmove(p, buf, sizeof(buf));
@@ -124,11 +129,11 @@ uint8_t *loadform(FILE *f, int32_t *size) {
 }
 
 void writeform(FILE *f, uint8_t *start, uint8_t *end) {
-  if (end < start || end - start > INT32_MAX)
+  if (end < start || end - start > (ptrdiff_t)INT32_MAX + FORM_HEADER)
     fail("writeform: invalid memory range");
   putint(FORM, 32, start);
-  putint(end - start - 8, 32, start + 4);
-  putint(AIFC, 32, start + 8);
+  putint(end - start - FORM_HEADER, 32, start + 4);
+  putint(AIFC, 32, start + FORM_HEADER);
   if (!fwrite(start, end - start, 1, f))
     fail("fwrite failed");
 }
@@ -145,21 +150,21 @@ struct comm {
 struct comm loadcomm(uint8_t *in, uint8_t *inend, int32_t filetype) {
   uint8_t *comm;
   struct comm cm = {0};
-  if (comm = finduniquechunk(COMM, in + 12, inend), comm == inend)
+  if (comm = finduniquechunk(COMM, in + FORM_HEADER + 4, inend), comm == inend)
     fail("cannot find COMM chunk");
   cm.size = getint(comm + 4, 32);
   if (cm.size < (filetype == AIFC ? 22 : 18))
     fail("COMM chunk too small: %d", cm.size);
-  cm.nchannels = getint(comm + 8, 16);
+  cm.nchannels = getint(comm + CHUNK_HEADER, 16);
   if (cm.nchannels < 1 || cm.nchannels > MAX_CHANNELS)
     fail("invalid number of channels: %d", cm.nchannels);
-  cm.nsamples = getuint(comm + 10, 32);
-  cm.wordsize = getint(comm + 14, 16);
+  cm.nsamples = getuint(comm + CHUNK_HEADER + 2, 32);
+  cm.wordsize = getint(comm + CHUNK_HEADER + 6, 16);
   if (cm.wordsize < 1 || cm.wordsize > 32)
     fail("invalid wordsize: %d", cm.wordsize);
   if (filetype == AIFC) {
-    cm.compressiontype = getint(comm + 8 + 18, 32);
-    memmove(&cm.compressiontypestring, comm + 8 + 18, 4);
+    cm.compressiontype = getint(comm + CHUNK_HEADER + 18, 32);
+    memmove(&cm.compressiontypestring, comm + CHUNK_HEADER + 18, 4);
   }
   return cm;
 }
@@ -315,8 +320,8 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   int32_t outmax, maxframesize;
   int outwordsize = COMPRESSED_WORD_SIZE;
 
-  assert(in < inend - 8);
-  if (getint(in + 8, 32) == AIFC && comm.compressiontype != NONE)
+  assert(in < inend - FORM_HEADER);
+  if (getint(in + FORM_HEADER, 32) == AIFC && comm.compressiontype != NONE)
     fail("unsupported input AIFC compression format: %4.4s",
          comm.compressiontypestring);
 
@@ -332,24 +337,24 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   if (out = malloc(outmax), !out)
     fail("malloc output failed");
 
-  p = in + 12;
-  q = out + 12;
-  while (p < inend - 8) {
+  p = in + FORM_HEADER + 4;
+  q = out + FORM_HEADER + 4;
+  while (p < inend - CHUNK_HEADER) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     if (ID == COMM) {
       uint8_t compressinfo[] = "DWVWxDelta With Variable Word Width\x00";
       int compressoff = 18, compressinfosize = sizeof(compressinfo) - 1;
-      memmove(q, p, compressoff + 8);
-      putint(outwordsize, 16, q + 14);
-      memmove(q + compressoff + 8, compressinfo, compressinfosize);
+      memmove(q, p, compressoff + CHUNK_HEADER);
+      putint(outwordsize, 16, q + CHUNK_HEADER + 6);
+      memmove(q + compressoff + CHUNK_HEADER, compressinfo, compressinfosize);
       q[compressoff + 4] =
           0x1f; /* not allowed to put \x1f in string literal?? */
       putint(compressoff + compressinfosize, 32, q + 4);
-      q += compressoff + compressinfosize + 8;
+      q += compressoff + compressinfosize + CHUNK_HEADER;
     } else if (ID == SSND) {
       uint8_t *ssnd = q;
       int i;
-      q += 16;
+      q += CHUNK_HEADER + 8;
       for (i = 0; i < comm.nchannels; i++) {
         q += encodedwvw(p + 16 + i * comm.wordsize / 8, comm.nsamples,
                         comm.wordsize, comm.nchannels, q, out + outmax,
@@ -359,14 +364,14 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
         q += (q - ssnd) & 1;
       }
       putint(SSND, 32, ssnd);
-      putint(q - ssnd - 8, 32, ssnd + 4);
-      putint(0, 32, ssnd + 8);
-      putint(0, 32, ssnd + 12);
+      putint(q - ssnd - CHUNK_HEADER, 32, ssnd + 4);
+      putint(0, 32, ssnd + CHUNK_HEADER);
+      putint(0, 32, ssnd + CHUNK_HEADER + 4);
     } else {
-      memmove(q, p, size + 8);
-      q += size + 8;
+      memmove(q, p, size + CHUNK_HEADER);
+      q += size + CHUNK_HEADER;
     }
-    p += size + 8;
+    p += size + CHUNK_HEADER;
   }
 
   writeform(f, out, q);
@@ -377,8 +382,8 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   uint8_t *p, *q, *out;
   int32_t outmax, framesize;
 
-  assert(in < inend - 8);
-  if (getint(in + 8, 32) != AIFC)
+  assert(in < inend - FORM_HEADER);
+  if (getint(in + FORM_HEADER, 32) != AIFC)
     fail("input file is not AIFC");
   if (comm.compressiontype != DWVW)
     fail("unsupported input AIFC compression format: %4.4s",
@@ -393,22 +398,24 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
   if (out = malloc(outmax), !out)
     fail("malloc out failed");
 
-  p = in + 12;
-  q = out + 12;
-  while (p < inend - 8) {
+  p = in + FORM_HEADER + 4;
+  q = out + FORM_HEADER + 4;
+  while (p < inend - CHUNK_HEADER) {
     int32_t ID = getint(p, 32), size = getint(p + 4, 32);
     if (ID == COMM) {
       uint8_t compressinfo[] = "NONE\x0enot compressed\x00";
-      int compressoff = 18 + 8, compressinfosize = sizeof(compressinfo) - 1;
+      int compressoff = 18 + CHUNK_HEADER,
+          compressinfosize = sizeof(compressinfo) - 1;
       memmove(q, p, compressoff);
-      putint(outwordsize, 16, q + 14);
+      putint(outwordsize, 16, q + CHUNK_HEADER + 6);
       memmove(q + compressoff, compressinfo, compressinfosize);
       putint(18 + compressinfosize, 32, q + 4);
-      q += 18 + compressinfosize + 8;
+      q += 18 + compressinfosize + CHUNK_HEADER;
     } else if (ID == SSND) {
       int i;
-      uint8_t *ssnd = q, *dwvwstart = p + 16, *dwvwend = p + 8 + size;
-      q += 16;
+      uint8_t *ssnd = q, *dwvwstart = p + CHUNK_HEADER + 8,
+              *dwvwend = p + CHUNK_HEADER + size;
+      q += CHUNK_HEADER + 8;
       for (i = 0; i < comm.nchannels; i++) {
         dwvwstart += decodedwvw(dwvwstart, dwvwend, comm.nsamples,
                                 comm.wordsize, comm.nchannels,
@@ -419,14 +426,14 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
         q += comm.nsamples * (outwordsize / 8);
       }
       putint(SSND, 32, ssnd);
-      putint(q - ssnd - 8, 32, ssnd + 4);
-      putint(0, 32, ssnd + 8);
-      putint(0, 32, ssnd + 12);
+      putint(q - ssnd - CHUNK_HEADER, 32, ssnd + 4);
+      putint(0, 32, ssnd + CHUNK_HEADER);
+      putint(0, 32, ssnd + CHUNK_HEADER + 4);
     } else {
-      memmove(q, p, size + 8);
-      q += size + 8;
+      memmove(q, p, size + CHUNK_HEADER);
+      q += size + CHUNK_HEADER;
     }
-    p += size + 8;
+    p += size + CHUNK_HEADER;
   }
 
   writeform(f, out, q);
@@ -451,9 +458,9 @@ int main(int argc, char **argv) {
 
   in = loadform(fin, &insize);
   inend = in + insize;
-  filetype = getint(in + 8, 32);
+  filetype = getint(in + FORM_HEADER, 32);
   if (filetype != AIFF && filetype != AIFC)
-    fail("invalid file type: %4.4s", in + 8);
+    fail("invalid file type: %4.4s", in + FORM_HEADER);
   if (findchunk(0, in + 12, inend) != inend) /* validate chunk sizes */
     fail("zero chunk ID found");
   comm = loadcomm(in, inend, filetype);
