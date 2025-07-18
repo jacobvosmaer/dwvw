@@ -86,6 +86,12 @@ int putint(int64_t x, int wordsize, uint8_t *p) {
   return wordsize / 8;
 }
 
+int64_t nextchunk(int32_t size) {
+  /* The AIFF spec says chunk size may be odd but the next chunk must start at
+   * an even offset. */
+  return (int64_t)CHUNK_HEADER + (int64_t)size + (int64_t)(size & 1);
+}
+
 uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *p = start;
   while (p < end - CHUNK_HEADER) {
@@ -94,7 +100,7 @@ uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
       fail("chunk %4.4s: invalid size %d", p, size);
     if (getint(p, 32) == ID)
       return p;
-    p += size + CHUNK_HEADER;
+    p += nextchunk(size);
   }
   return end;
 }
@@ -102,7 +108,7 @@ uint8_t *findchunk(int32_t ID, uint8_t *start, uint8_t *end) {
 uint8_t *finduniquechunk(int32_t ID, uint8_t *start, uint8_t *end) {
   uint8_t *chunk = findchunk(ID, start, end);
   if (chunk < end) {
-    uint8_t *chunk2, *tail = chunk + CHUNK_HEADER + getint(chunk + 4, 32);
+    uint8_t *chunk2, *tail = chunk + nextchunk(getint(chunk + 4, 32));
     if (chunk2 = findchunk(ID, tail, end), chunk2 < end)
       fail("duplicate %4.4s chunk", chunk);
   }
@@ -368,10 +374,10 @@ void compress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       putint(0, 32, ssnd + CHUNK_HEADER);
       putint(0, 32, ssnd + CHUNK_HEADER + 4);
     } else {
-      memmove(q, p, size + CHUNK_HEADER);
-      q += size + CHUNK_HEADER;
+      memmove(q, p, nextchunk(size));
+      q += nextchunk(size);
     }
-    p += size + CHUNK_HEADER;
+    p += nextchunk(size);
   }
 
   writeform(f, out, q);
@@ -414,7 +420,7 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
     } else if (ID == SSND) {
       int i;
       uint8_t *ssnd = q, *dwvwstart = p + CHUNK_HEADER + 8,
-              *dwvwend = p + CHUNK_HEADER + size;
+              *dwvwend = p + nextchunk(size);
       q += CHUNK_HEADER + 8;
       for (i = 0; i < comm.nchannels; i++) {
         dwvwstart += decodedwvw(dwvwstart, dwvwend, comm.nsamples,
@@ -430,10 +436,10 @@ void decompress(uint8_t *in, uint8_t *inend, struct comm comm, FILE *f) {
       putint(0, 32, ssnd + CHUNK_HEADER);
       putint(0, 32, ssnd + CHUNK_HEADER + 4);
     } else {
-      memmove(q, p, size + CHUNK_HEADER);
-      q += size + CHUNK_HEADER;
+      memmove(q, p, nextchunk(size));
+      q += nextchunk(size);
     }
-    p += size + CHUNK_HEADER;
+    p += nextchunk(size);
   }
 
   writeform(f, out, q);
