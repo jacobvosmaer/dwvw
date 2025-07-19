@@ -201,58 +201,58 @@ int encodedwvw(uint8_t *input, uint32_t nsamples, int inwordsize, int stride,
                uint8_t *output, uint8_t *outputend, int outwordsize) {
   uint32_t j;
   int64_t lastsample = 0;
-  int lastdeltawidth = 0;
+  int lastwidth = 0;
   struct bitwriter bw = {0};
   bw.data = output;
   bw.size = outputend - output;
   for (j = 0; j < nsamples; j++) {
-    int dwm, dwmsign, deltawidth, deltasign, i;
-    int64_t delta, sample;
+    int widthdelta, widthdeltasign, width, sampledeltasign, i;
+    int64_t sampledelta, sample;
 
     sample =
         convertbitdepth(getint(input, inwordsize), inwordsize, outwordsize);
     input += stride * inwordsize / 8;
 
-    delta = sample - lastsample;
+    sampledelta = sample - lastsample;
     lastsample = sample;
     /* DWVW stores outwordsize bit inter-sample differences as an (outwordsize -
-     * 1) bit absolute value plus a sign bit. To make that fit the delta must
-     * wrap around. */
-    if (delta >= bit(outwordsize - 1))
-      delta -= bit(outwordsize);
-    else if (delta < -bit(outwordsize - 1))
-      delta += bit(outwordsize);
+     * 1) bit absolute value plus a sign bit. To make that fit the sampledelta
+     * must wrap around. */
+    if (sampledelta >= bit(outwordsize - 1))
+      sampledelta -= bit(outwordsize);
+    else if (sampledelta < -bit(outwordsize - 1))
+      sampledelta += bit(outwordsize);
     if (DEBUG > 1)
-      fprintf(stderr, "delta=%" PRId64 "\n", delta);
+      fprintf(stderr, "sampledelta=%" PRId64 "\n", sampledelta);
 
-    deltasign = delta < 0;
-    delta = deltasign ? -delta : delta;
-    for (deltawidth = 0; (1 << deltawidth) <= delta; deltawidth++)
+    sampledeltasign = sampledelta < 0;
+    sampledelta = sampledeltasign ? -sampledelta : sampledelta;
+    for (width = 0; (1 << width) <= sampledelta; width++)
       ;
-    dwm = deltawidth - lastdeltawidth; /* delta width modifier */
-    lastdeltawidth = deltawidth;
-    if (dwm > outwordsize / 2)
-      dwm -= outwordsize;
-    else if (dwm < -outwordsize / 2)
-      dwm += outwordsize;
+    widthdelta = width - lastwidth; /* sampledelta width modifier */
+    lastwidth = width;
+    if (widthdelta > outwordsize / 2)
+      widthdelta -= outwordsize;
+    else if (widthdelta < -outwordsize / 2)
+      widthdelta += outwordsize;
 
-    dwmsign = dwm < 0;
-    dwm = dwmsign ? -dwm : dwm;
-    for (i = 0; i < dwm; i++) /* Store dwm in unary */
+    widthdeltasign = widthdelta < 0;
+    widthdelta = widthdeltasign ? -widthdelta : widthdelta;
+    for (i = 0; i < widthdelta; i++) /* Store widthdelta in unary */
       putbit(&bw, 0);
-    if (dwm < outwordsize / 2) /* Dwm stop bit */
+    if (widthdelta < outwordsize / 2) /* Widthdelta stop bit */
       putbit(&bw, 1);
-    if (dwm)
-      putbit(&bw, dwmsign);
+    if (widthdelta)
+      putbit(&bw, widthdeltasign);
 
-    for (i = 1; i < deltawidth; i++) /* Store delta in binary */
-      putbit(&bw, (delta & bit(deltawidth - 1 - i)) > 0);
-    if (delta)
-      putbit(&bw, deltasign);
+    for (i = 1; i < width; i++) /* Store sampledelta in binary */
+      putbit(&bw, (sampledelta & bit(width - 1 - i)) > 0);
+    if (sampledelta)
+      putbit(&bw, sampledeltasign);
     /* Extra bit for otherwise unrepresentable value -(1 << (outwordsize - 1))
      */
-    if (deltasign && delta >= bit(outwordsize - 1) - 1)
-      putbit(&bw, delta == bit(outwordsize - 1));
+    if (sampledeltasign && sampledelta >= bit(outwordsize - 1) - 1)
+      putbit(&bw, sampledelta == bit(outwordsize - 1));
   }
   return (bw.n + 7) / 8;
 }
@@ -274,41 +274,41 @@ int64_t getbit(struct bitreader *br) {
 int decodedwvw(uint8_t *input, uint8_t *inend, uint32_t nsamples,
                int inwordsize, int stride, uint8_t *output, int outwordsize) {
   struct bitreader br = {0};
-  int deltawidth = 0;
+  int width = 0;
   int64_t sample = 0;
   uint32_t j;
   br.data = input;
   br.size = inend - input;
   for (j = 0; j < nsamples; j++) {
-    int i, dwm; /* "delta width modifier" */
-    int64_t delta;
+    int i, widthdelta;
+    int64_t sampledelta;
 
-    dwm = 0;
-    while (dwm < inwordsize / 2 && !getbit(&br))
-      dwm++;
-    if (dwm) /* Dwm sign omitted if dwm is zero */
-      dwm = getbit(&br) ? -dwm : dwm;
+    widthdelta = 0;
+    while (widthdelta < inwordsize / 2 && !getbit(&br))
+      widthdelta++;
+    if (widthdelta) /* Widthdelta sign omitted if widthdelta is zero */
+      widthdelta = getbit(&br) ? -widthdelta : widthdelta;
 
-    deltawidth += dwm;
-    if (deltawidth >= inwordsize)
-      deltawidth -= inwordsize;
-    else if (deltawidth < 0)
-      deltawidth += inwordsize;
+    width += widthdelta;
+    if (width >= inwordsize)
+      width -= inwordsize;
+    else if (width < 0)
+      width += inwordsize;
 
-    delta = 0;
-    if (deltawidth) {
-      delta = 1;
-      for (i = 1; i < deltawidth; i++)
-        delta = (delta << 1) | getbit(&br);
-      delta = getbit(&br) ? -delta : delta;
+    sampledelta = 0;
+    if (width) {
+      sampledelta = 1;
+      for (i = 1; i < width; i++)
+        sampledelta = (sampledelta << 1) | getbit(&br);
+      sampledelta = getbit(&br) ? -sampledelta : sampledelta;
       /* Trick to represent -(1 << (inwordsize - 1)) */
-      if (delta == 1 - bit(inwordsize - 1))
-        delta -= getbit(&br);
+      if (sampledelta == 1 - bit(inwordsize - 1))
+        sampledelta -= getbit(&br);
     }
     if (DEBUG > 1)
-      fprintf(stderr, "delta=%" PRId64 "\n", delta);
+      fprintf(stderr, "sampledelta=%" PRId64 "\n", sampledelta);
 
-    sample += delta;
+    sample += sampledelta;
     if (sample >= bit(inwordsize - 1))
       sample -= bit(inwordsize);
     else if (sample < -bit(inwordsize - 1))
