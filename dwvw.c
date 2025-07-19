@@ -229,7 +229,7 @@ int encodedwvw(uint8_t *input, uint32_t nsamples, int inwordsize, int stride,
     sampledelta = sampledeltasign ? -sampledelta : sampledelta;
     for (width = 0; (1 << width) <= sampledelta; width++)
       ;
-    widthdelta = width - lastwidth; /* sampledelta width modifier */
+    widthdelta = width - lastwidth;
     lastwidth = width;
     if (widthdelta > outwordsize / 2)
       widthdelta -= outwordsize;
