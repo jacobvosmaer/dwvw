@@ -475,5 +475,7 @@ int main(int argc, char **argv) {
     compress(in, inend, comm, fout);
   else
     decompress(in, inend, comm, fout);
+  if (fclose(fout))
+    fail("close failed: %s", argv[3]);
   return 0;
 }
