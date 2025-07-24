@@ -5,7 +5,7 @@ The dwvw utility converts AIFF files to and from the custom DWVW format of [Typh
 DWVW was invented 1991 by Magnus Lidström and is copyright 1993 by NuEdge
 Development.
 
-DWVW is a lossless audio compression codec encapsulated in the AIFC audio file format.
+DWVW is a lossless audio compression codec encapsulated in the AIFC audio file format. Read more in this blog post: https://blog.jacobvosmaer.nl/0055-dwvw/ .
 
 If you're looking at a DWVW implementation to use in your own program you might want to look at [libsndfile](https://github.com/libsndfile/libsndfile) instead.
 
